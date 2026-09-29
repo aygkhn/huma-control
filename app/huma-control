@@ -150,7 +150,7 @@ CHARGE_PROFILES = [
     ('stationary', _('Stationary'), _('Mostly plugged in; protects the battery by charging it less')),
 ]
 # Monster Control Center's Performance page; PL1 = the CPU's sustained power limit
-PERF_MODES = [('balanced', _('Balanced')), ('quiet', _('Quiet (20 dB)'))]
+PERF_MODES = [('balanced', _('Balanced')), ('quiet', _('Quiet'))]
 PERF_LEVELS = {
     'balanced': [('low', _('Low'), '30 W'), ('medium', _('Medium'), '32 W'),
                  ('high', _('High'), _('38 W, 35 W on battery'))],

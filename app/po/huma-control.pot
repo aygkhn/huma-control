@@ -10,7 +10,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: huma-control\n"
 "Report-Msgid-Bugs-To: aygkhn@gmail.com\n"
-"POT-Creation-Date: 2026-09-29 16:43+0300\n"
+"POT-Creation-Date: 2026-09-29 17:37+0300\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -122,7 +122,7 @@ msgid "Charges the battery fully; longest runtime"
 msgstr ""
 
 #: huma-control:149 huma-control:153 huma-control:165 huma-control:1212
-#: huma-control:2414 huma-control:2989
+#: huma-control:2414 huma-control:2988
 msgid "Balanced"
 msgstr ""
 
@@ -138,8 +138,8 @@ msgstr ""
 msgid "Mostly plugged in; protects the battery by charging it less"
 msgstr ""
 
-#: huma-control:153
-msgid "Quiet (20 dB)"
+#: huma-control:153 huma-control:165
+msgid "Quiet"
 msgstr ""
 
 #: huma-control:155 huma-control:2333
@@ -156,10 +156,6 @@ msgstr ""
 
 #: huma-control:156
 msgid "38 W, 35 W on battery"
-msgstr ""
-
-#: huma-control:165
-msgid "Quiet"
 msgstr ""
 
 #: huma-control:165 huma-control:2301
@@ -256,7 +252,7 @@ msgid "When plugged in, the battery charges first"
 msgstr ""
 
 #: huma-control:323 huma-control:1054 huma-control:1213 huma-control:2415
-#: huma-control:2990
+#: huma-control:2989
 msgid "Performance"
 msgstr ""
 
@@ -557,7 +553,7 @@ msgctxt "power mode"
 msgid "Mode"
 msgstr ""
 
-#: huma-control:1211 huma-control:2414 huma-control:2989
+#: huma-control:1211 huma-control:2414 huma-control:2988
 msgid "Power Saver"
 msgstr ""
 
@@ -1094,7 +1090,7 @@ msgstr ""
 msgid "By Command Line…"
 msgstr ""
 
-#: huma-control:1694 huma-control:2617
+#: huma-control:1694 huma-control:2616
 msgid "Save"
 msgstr ""
 
@@ -1167,7 +1163,7 @@ msgstr ""
 msgid "Text to look for"
 msgstr ""
 
-#: huma-control:1823 huma-control:2715
+#: huma-control:1823 huma-control:2714
 msgid "Could not save"
 msgstr ""
 
@@ -1175,7 +1171,7 @@ msgstr ""
 msgid "Automatic profiles saved"
 msgstr ""
 
-#: huma-control:1846 huma-control:2823
+#: huma-control:1846 huma-control:2822
 msgid "Measuring…"
 msgstr ""
 
@@ -1620,67 +1616,67 @@ msgstr ""
 msgid "Measurement interval"
 msgstr ""
 
-#: huma-control:2495
+#: huma-control:2494
 msgid "Measurement interval saved"
 msgstr ""
 
-#: huma-control:2504
+#: huma-control:2503
 msgid "Keyboard Backlight"
 msgstr ""
 
-#: huma-control:2505
+#: huma-control:2504
 msgid "Turn on/off automatically"
 msgstr ""
 
-#: huma-control:2506
+#: huma-control:2505
 msgid "Very dark → bright, dark → dim, bright → off"
 msgstr ""
 
-#: huma-control:2509
+#: huma-control:2508
 msgid "The keyboard backlight will turn on and off with the ambient light"
 msgstr ""
 
-#: huma-control:2510
+#: huma-control:2509
 msgid "The keyboard backlight won't change with the ambient light"
 msgstr ""
 
-#: huma-control:2512
+#: huma-control:2511
 msgid "Dark threshold (dim)"
 msgstr ""
 
-#: huma-control:2513
+#: huma-control:2512
 msgid ""
 "Below it is dark (backlight dim), above 1.5 times it is bright (backlight "
 "off)"
 msgstr ""
 
-#: huma-control:2516
+#: huma-control:2515
 msgid "It's Dark Now"
 msgstr ""
 
-#: huma-control:2517
+#: huma-control:2516
 msgid ""
 "Set it with the room as dark as you like: makes the threshold slightly above "
 "the current measurement"
 msgstr ""
 
-#: huma-control:2524
+#: huma-control:2523
 msgid "Very dark threshold"
 msgstr ""
 
-#: huma-control:2525
+#: huma-control:2524
 msgid "Below this measurement the keyboard backlight is bright"
 msgstr ""
 
-#: huma-control:2527
+#: huma-control:2526
 msgid "It's Very Dark Now"
 msgstr ""
 
-#: huma-control:2539
+#: huma-control:2538
 msgid "Screen Brightness"
 msgstr ""
 
-#: huma-control:2540
+#: huma-control:2539
 msgid ""
 "The current brightness counts as your preference for the current light: the "
 "screen dims as the room gets darker and brightens as it gets lighter. Moving "
@@ -1689,118 +1685,118 @@ msgid ""
 "in Quick Settings."
 msgstr ""
 
-#: huma-control:2544
+#: huma-control:2543
 msgid "Adjust to ambient light"
 msgstr ""
 
-#: huma-control:2545
+#: huma-control:2544
 msgid "The brightness slider stays as fine-tuning"
 msgstr ""
 
-#: huma-control:2548
+#: huma-control:2547
 msgid "Automatic screen brightness turned on"
 msgstr ""
 
-#: huma-control:2549
+#: huma-control:2548
 msgid "Automatic screen brightness turned off"
 msgstr ""
 
-#: huma-control:2550
+#: huma-control:2549
 msgid "Sensitivity"
 msgstr ""
 
-#: huma-control:2551
+#: huma-control:2550
 msgid "How much ambient light changes affect the screen"
 msgstr ""
 
-#: huma-control:2552
+#: huma-control:2551
 msgctxt "sensitivity"
 msgid "Low"
 msgstr ""
 
-#: huma-control:2553
+#: huma-control:2552
 msgctxt "sensitivity"
 msgid "Medium"
 msgstr ""
 
-#: huma-control:2554
+#: huma-control:2553
 msgctxt "sensitivity"
 msgid "High"
 msgstr ""
 
-#: huma-control:2556
+#: huma-control:2555
 msgid "Sensitivity saved"
 msgstr ""
 
-#: huma-control:2558
+#: huma-control:2557
 msgid "Full brightness in sunlight"
 msgstr ""
 
-#: huma-control:2559
+#: huma-control:2558
 msgid ""
 "In sunlight or very bright surroundings the screen goes to 100%, wherever "
 "the slider is"
 msgstr ""
 
-#: huma-control:2563
+#: huma-control:2562
 msgid "Full brightness in sunlight turned on"
 msgstr ""
 
-#: huma-control:2564
+#: huma-control:2563
 msgid "Full brightness in sunlight turned off"
 msgstr ""
 
-#: huma-control:2566
+#: huma-control:2565
 msgid "Sunlight threshold"
 msgstr ""
 
-#: huma-control:2567
+#: huma-control:2566
 msgid ""
 "The scale has no upper limit: dark room ~0-20, normal room ~50-255, by a "
 "window hundreds, sunlight thousands. Between 255 and this threshold the "
 "screen brightens step by step"
 msgstr ""
 
-#: huma-control:2571
+#: huma-control:2570
 msgid "It's Sunny Now"
 msgstr ""
 
-#: huma-control:2572
+#: huma-control:2571
 msgid ""
 "Press while in sunlight: the threshold becomes slightly below the current "
 "measurement"
 msgstr ""
 
-#: huma-control:2578
+#: huma-control:2577
 msgid "Method"
 msgstr ""
 
-#: huma-control:2578
+#: huma-control:2577
 msgid "Levels"
 msgstr ""
 
-#: huma-control:2578
+#: huma-control:2577
 msgid "Relative"
 msgstr ""
 
-#: huma-control:2579
+#: huma-control:2578
 msgid ""
 "Levels: a set percentage for each light level · Relative: based on the slider"
 msgstr ""
 
-#: huma-control:2583
+#: huma-control:2582
 msgid "Method saved"
 msgstr ""
 
-#: huma-control:2590
+#: huma-control:2589
 msgid "Last decision"
 msgstr ""
 
-#: huma-control:2597
+#: huma-control:2596
 msgid "Screen Percentages (%)"
 msgstr ""
 
-#: huma-control:2598
+#: huma-control:2597
 msgid ""
 "The screen percentage for each light level. If the measurement is between "
 "two levels, the screen moves step by step to a value in between. If you "
@@ -1808,15 +1804,15 @@ msgid ""
 "level; press Save below to make it permanent."
 msgstr ""
 
-#: huma-control:2616
+#: huma-control:2615
 msgid "Save the current brightness for this light"
 msgstr ""
 
-#: huma-control:2626
+#: huma-control:2625
 msgid "When Nobody Is There"
 msgstr ""
 
-#: huma-control:2627
+#: huma-control:2626
 msgid ""
 "When the keyboard and touchpad aren't touched, the camera takes one look: if "
 "nobody is there, the screen locks and turns off (it looks again after 10 s "
@@ -1827,252 +1823,252 @@ msgid ""
 "assumed to be there."
 msgstr ""
 
-#: huma-control:2634
+#: huma-control:2633
 msgid "Lock and turn off the screen when nobody is there"
 msgstr ""
 
-#: huma-control:2635
+#: huma-control:2634
 msgid "Face detection"
 msgstr ""
 
-#: huma-control:2635
+#: huma-control:2634
 msgid "Not installed: ./install.sh"
 msgstr ""
 
-#: huma-control:2638
+#: huma-control:2637
 msgid "Presence check turned on"
 msgstr ""
 
-#: huma-control:2638
+#: huma-control:2637
 msgid "Presence check turned off"
 msgstr ""
 
-#: huma-control:2639
+#: huma-control:2638
 msgid "Look Now"
 msgstr ""
 
-#: huma-control:2643
+#: huma-control:2642
 msgid "When to look"
 msgstr ""
 
-#: huma-control:2643
+#: huma-control:2642
 msgid "After this long without input"
 msgstr ""
 
-#: huma-control:2648 huma-control:2655 huma-control:2734
+#: huma-control:2647 huma-control:2654 huma-control:2733
 msgid "Saved"
 msgstr ""
 
-#: huma-control:2651
+#: huma-control:2650
 msgid "Camera"
 msgstr ""
 
-#: huma-control:2651
+#: huma-control:2650
 msgid "The IR camera also sees in the dark"
 msgstr ""
 
-#: huma-control:2652
+#: huma-control:2651
 msgid "IR camera"
 msgstr ""
 
-#: huma-control:2652
+#: huma-control:2651
 msgid "Normal camera"
 msgstr ""
 
-#: huma-control:2666
+#: huma-control:2665
 msgid "Show changes on screen"
 msgstr ""
 
-#: huma-control:2667
+#: huma-control:2666
 msgid ""
 "When the screen or keyboard backlight changes by itself, an indicator "
 "appears like with the brightness keys"
 msgstr ""
 
-#: huma-control:2671
+#: huma-control:2670
 msgid "Indicator turned on"
 msgstr ""
 
-#: huma-control:2671
+#: huma-control:2670
 msgid "Indicator turned off"
 msgstr ""
 
-#: huma-control:2792
+#: huma-control:2791
 msgid "what you choose is kept when plugged in"
 msgstr ""
 
-#: huma-control:2792
+#: huma-control:2791
 msgid "also when plugged in"
 msgstr ""
 
-#: huma-control:2794
+#: huma-control:2793
 #, python-brace-format
 msgid ""
 "You can also change it with Fn+F6; automatic on/off is on: it is corrected "
 "to the ambient light after a few seconds ({when})."
 msgstr ""
 
-#: huma-control:2796
+#: huma-control:2795
 msgid "You can also change it with Fn+F6."
 msgstr ""
 
-#: huma-control:2798
+#: huma-control:2797
 msgid ""
 "The goal is saving power: even if you change it with Fn+F6, it is corrected "
 "to the ambient light after a few seconds (on battery only; can be changed on "
 "the Power Saving page)."
 msgstr ""
 
-#: huma-control:2800
+#: huma-control:2799
 msgid ""
 "The goal is saving power: even if you change it with Fn+F6, it is corrected "
 "to the ambient light after a few seconds."
 msgstr ""
 
-#: huma-control:2803
+#: huma-control:2802
 msgid ""
 "The backlight turns off if the keyboard and touchpad aren't touched for this "
 "long (also when plugged in) and turns back on when touched"
 msgstr ""
 
-#: huma-control:2811
+#: huma-control:2810
 msgid ""
 "Between sunrise and sunset the backlight starts off at boot, at login and "
 "when waking from sleep (based on location; left alone when plugged in)."
 msgstr ""
 
-#: huma-control:2813
+#: huma-control:2812
 msgid ""
 "Between sunrise and sunset the backlight starts off at boot, at login and "
 "when waking from sleep (based on location)."
 msgstr ""
 
-#: huma-control:2815
+#: huma-control:2814
 msgid ""
 "It stays on if the room is dark; even if you turn it on with Fn+F6, it turns "
 "off again after a few seconds if the room is bright"
 msgstr ""
 
-#: huma-control:2816
+#: huma-control:2815
 msgid "It can be turned on with Fn+F6"
 msgstr ""
 
-#: huma-control:2817
+#: huma-control:2816
 #, python-brace-format
 msgid "Daytime here today: {sunrise}–{sunset}"
 msgstr ""
 
-#: huma-control:2818
+#: huma-control:2817
 msgid "Location unknown: turn on Settings → Privacy → Location Services"
 msgstr ""
 
-#: huma-control:2837
+#: huma-control:2836
 msgid "Could not measure"
 msgstr ""
 
-#: huma-control:2846
+#: huma-control:2845
 #, python-brace-format
 msgid "Measurement {value}: too low for sunlight (normal room ~50-255)"
 msgstr ""
 
-#: huma-control:2850
+#: huma-control:2849
 #, python-brace-format
 msgid ""
 "Sunlight threshold {value}: in light this bright the screen is at full "
 "brightness"
 msgstr ""
 
-#: huma-control:2854
+#: huma-control:2853
 #, python-brace-format
 msgid ""
 "Very dark threshold {value}: this dark, the keyboard backlight is bright"
 msgstr ""
 
-#: huma-control:2858
+#: huma-control:2857
 #, python-brace-format
 msgid "Threshold {value}: a room this dark or darker counts as dark"
 msgstr ""
 
-#: huma-control:2868
+#: huma-control:2867
 msgid "Turning off when idle disabled"
 msgstr ""
 
-#: huma-control:2869
+#: huma-control:2868
 #, python-brace-format
 msgid "The keyboard backlight will turn off after {time}"
 msgstr ""
 
-#: huma-control:2874
+#: huma-control:2873
 msgid "Starting off during daytime turned on"
 msgstr ""
 
-#: huma-control:2875
+#: huma-control:2874
 msgid "Starting off during daytime turned off"
 msgstr ""
 
-#: huma-control:2883
+#: huma-control:2882
 msgid "Location updated"
 msgstr ""
 
-#: huma-control:2902 huma-control:2921
+#: huma-control:2901 huma-control:2920
 msgid "Fan Boost turned on"
 msgstr ""
 
-#: huma-control:2902 huma-control:2921
+#: huma-control:2901 huma-control:2920
 msgid "Fan in automatic mode"
 msgstr ""
 
-#: huma-control:2927
+#: huma-control:2926
 msgid "Touchpad shortcut turned on"
 msgstr ""
 
-#: huma-control:2927
+#: huma-control:2926
 msgid "Touchpad shortcut turned off"
 msgstr ""
 
-#: huma-control:2949
+#: huma-control:2948
 msgid "Power on when plugged in turned on; takes effect after a restart"
 msgstr ""
 
-#: huma-control:2950
+#: huma-control:2949
 msgid "Power on when plugged in turned off; takes effect after a restart"
 msgstr ""
 
-#: huma-control:2959
+#: huma-control:2958
 msgid "USB power while off turned on"
 msgstr ""
 
-#: huma-control:2959
+#: huma-control:2958
 msgid "USB power while off turned off"
 msgstr ""
 
-#: huma-control:2965
+#: huma-control:2964
 msgid "Windows key locked"
 msgstr ""
 
-#: huma-control:2965
+#: huma-control:2964
 msgid "Windows key unlocked"
 msgstr ""
 
-#: huma-control:2971
+#: huma-control:2970
 msgid "Fn lock turned on"
 msgstr ""
 
-#: huma-control:2971
+#: huma-control:2970
 msgid "Fn lock turned off"
 msgstr ""
 
-#: huma-control:2988
+#: huma-control:2987
 #, python-brace-format
 msgid "Power mode: {mode}"
 msgstr ""
 
-#: huma-control:3001
+#: huma-control:3000
 #, python-brace-format
 msgid "SD card reader: {mode}"
 msgstr ""
 
-#: huma-control:3005
+#: huma-control:3004
 msgid "Setting applied"
 msgstr ""
 
