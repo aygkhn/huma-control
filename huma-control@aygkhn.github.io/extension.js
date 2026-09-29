@@ -576,6 +576,13 @@ class AutoBrightness {
                 this._hold = nearestStage(this._light, this._anchors);
                 this._holdSince = GLib.get_monotonic_time();
             }
+            // GNOME shows target + slider - 0.5: with a low automatic target the slider at its
+            // end gave e.g. 89%. While adjusting by hand the screen should be what the slider shows
+            if (this._active) {
+                this._stopAnimation();
+                Main.brightnessManager.autoBrightnessTarget = 0.5;
+                this._shown = Main.brightnessManager.globalScale?.value;
+            }
         }, this);
         this._kbdSeen = Date.now() / 1000;
         this._kbdMonitor = Gio.File.new_for_path(KBD_EVENT).get_parent().monitor_directory(Gio.FileMonitorFlags.WATCH_MOVES, null);
@@ -631,6 +638,11 @@ class AutoBrightness {
         if (changed)
             this._hold = null;     // apply the new percentages right away
         this.apply(light.value, light.time ?? '');
+    }
+
+    // "Measure now": leave the manual adjustment and follow the ambient light again
+    resume() {
+        this._hold = null;
     }
 
     // Apply a measured ambient light value (the service's measurement or "Measure now" from the menu)
@@ -796,7 +808,7 @@ class BrightnessMenu {
         this._info.label.add_style_class_name('dim-label');
         this._section.addMenuItem(this._switch);
         this._section.addMenuItem(this._info);
-        this._section.addAction(_('Measure now'), () => this._measure());
+        this._section.addAction(_('Measure now (back to automatic)'), () => this._measure());
         this._rememberItem = this._section.addAction(_('Remember this brightness for this light'), () => this._remember());
         // the other light-related switches live here too (not in the performance menu)
         this._section.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
@@ -913,6 +925,7 @@ class BrightnessMenu {
                         return;
                     }
                     this._info.label.text = `${_('Ambient light')}: ${Math.round(value)} · ${_('measured by camera')}`;
+                    this._auto.resume();
                     this._auto.apply(value);
                 } catch (e) {
                     this._info.label.text = e.message;

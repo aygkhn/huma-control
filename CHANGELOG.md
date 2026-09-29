@@ -16,6 +16,8 @@ V4.1; same chassis as TUXEDO InfinityBook Pro 14 Gen6), EC project id `0x13`.
 
 ### Fixed
 
+- Automatic brightness: while adjusting by hand the screen now matches the slider (the slider at
+  its end could give 89%); "Measure now (back to automatic)" drops the manual adjustment.
 - At boot tuned could apply its profile before the driver was loaded, leaving the laptop in
   Balanced Medium (32 W) on battery with Power Saver selected; the service now asks tuned to
   re-apply its profile when the driver appears.

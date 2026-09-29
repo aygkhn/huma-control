@@ -60,8 +60,8 @@ msgstr "Klavye ışığı ortama göre"
 msgid "Automatic brightness"
 msgstr "Otomatik parlaklık"
 
-msgid "Measure now"
-msgstr "Şimdi ölç"
+msgid "Measure now (back to automatic)"
+msgstr "Şimdi ölç (otomatiğe dön)"
 
 msgid "Ambient light"
 msgstr "Ortam ışığı"
