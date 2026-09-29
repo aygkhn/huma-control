@@ -298,6 +298,8 @@ def usage_entry(key):
     return ident, Gio.ThemedIcon.new('application-x-executable-symbolic'), False
 # the extension's last automatic brightness decision (informational)
 BRIGHTNESS_STATE = Path(os.environ.get('XDG_RUNTIME_DIR', f'/run/user/{os.getuid()}')) / 'huma-control-brightness.json'
+# "Measure Now" result for the extension: it leaves a manual slider adjustment and applies the reading
+BRIGHTNESS_RESUME = BRIGHTNESS_STATE.with_name('huma-control-brightness-resume.json')
 PRESENCE_DELAYS = [(s, duration_label(s)) for s in (30, 60, 120, 180)]
 
 
@@ -2840,6 +2842,10 @@ class Window(Adw.ApplicationWindow):
                     return False
                 self._manual_light = (value, time.time())
                 self._mark_stage(value)
+                try:   # automatic brightness follows this measurement again (as "Measure now" in the menu)
+                    BRIGHTNESS_RESUME.write_text(json.dumps({'value': value, 'time': time.time()}))
+                except OSError:
+                    pass
                 if calibrate == 'sun':
                     if value <= 300:
                         self.toast(_('Measurement {value}: too low for sunlight (normal room ~50-255)').format(

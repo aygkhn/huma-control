@@ -546,6 +546,8 @@ const SENSITIVITY = [0.8, 1.4, 2.0];
 // not go below 30% of the preference.
 // Last decision of the automatic brightness (shown by the app, useful when debugging)
 const BRIGHTNESS_STATE = GLib.build_filenamev([GLib.get_user_runtime_dir(), 'huma-control-brightness.json']);
+// "Measure Now" in the app: {value, time}; leaves the manual adjustment like "Measure now" in the menu
+const BRIGHTNESS_RESUME = GLib.build_filenamev([GLib.get_user_runtime_dir(), 'huma-control-brightness-resume.json']);
 
 // GNOME disables and re-enables extensions when the screen locks: learned state (manual
 // adjustment, recent measurements) is kept at module level so it survives the lock
@@ -590,6 +592,23 @@ class AutoBrightness {
         this._kbdMonitor.connect('changed', (_m, f, other) => {
             if (eventNames.includes((other ?? f)?.get_basename()))
                 this._keyboardEvent();
+        });
+        this._resumeMonitor = Gio.File.new_for_path(BRIGHTNESS_RESUME).get_parent().monitor_directory(
+            Gio.FileMonitorFlags.WATCH_MOVES, null);
+        const resumeNames = watchedNames(BRIGHTNESS_RESUME);
+        this._resumeMonitor.connect('changed', async (_m, f, other) => {
+            if (!resumeNames.includes((other ?? f)?.get_basename()))
+                return;
+            let r = null;
+            try {
+                r = await readJson(BRIGHTNESS_RESUME);
+            } catch {
+                return;
+            }
+            if (typeof r?.value === 'number' && Date.now() / 1000 - (r.time ?? 0) < 10 && !this._destroyed) {
+                this.resume();
+                this.apply(r.value);
+            }
         });
         this._monitors = [LIGHT, KBD_CONFIG].map(path => {
             const m = Gio.File.new_for_path(path).get_parent().monitor_directory(Gio.FileMonitorFlags.WATCH_MOVES, null);
@@ -778,6 +797,7 @@ class AutoBrightness {
         Main.brightnessManager?.disconnectObject(this);
         this._monitors.forEach(m => m.cancel());
         this._kbdMonitor?.cancel();
+        this._resumeMonitor?.cancel();
         brightnessState = Object.fromEntries(KEPT.map(k => [k, this[k]]));
         // the extension is disabled while locking: the lock screen must not jump to the raw slider value
         if (this._active && Main.brightnessManager && !Main.sessionMode.isLocked)
