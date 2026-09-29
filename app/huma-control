@@ -463,6 +463,16 @@ CSS = """
 .mode-banner.high { background: linear-gradient(135deg, #e66100, #c01c28); }
 .mode-banner.unknown { background: linear-gradient(135deg, #5e5c64, #3d3846); }
 .mode-title { font-size: 20px; font-weight: 800; }
+
+/* screen brightness card (ambient light page) */
+.mode-banner.screen-auto { background: linear-gradient(135deg, #e5a50a, #e66100); }
+.mode-banner.screen-manual { background: linear-gradient(135deg, #1c71d8, #613583); }
+.screen-percent { font-size: 34px; font-weight: 800; font-feature-settings: "tnum"; min-width: 3.2em; }
+.mode-banner levelbar block.filled { background: white; }
+.mode-banner levelbar block.empty { background: rgba(255,255,255,.28); }
+.mode-banner levelbar trough { background: none; border: none; }
+.mode-banner button { color: white; background: rgba(255,255,255,.2); }
+.screen-why { color: rgba(255,255,255,.92); font-weight: 600; }
 """
 
 
@@ -1851,21 +1861,35 @@ class Window(Adw.ApplicationWindow):
         self._show_decision()
 
     def _show_decision(self):
+        """Screen card: current panel percentage, mode and the extension's last decision."""
+        if not hasattr(self, 'screen_card'):
+            return
+        percent = screen_percent()
+        self.screen_pct.set_label(pct(percent) if percent is not None else '—')
+        self.screen_bar.set_value((percent or 0) / 100)
         d = read_json(BRIGHTNESS_STATE)
+        auto = self.screen_row.get_active()
+        manual = auto and isinstance(d, dict) and d.get('result') == 'manual-kept'
+        for c in ('unknown', 'screen-auto', 'screen-manual'):
+            self.screen_card.remove_css_class(c)
+        self.screen_card.add_css_class('screen-manual' if manual else 'screen-auto' if auto else 'unknown')
+        self.screen_resume.set_visible(manual)
+        if not auto:
+            self.screen_mode.set_label(_('Manual brightness'))
+            self.screen_why.set_label(_('Automatic brightness is off: the slider sets the screen'))
+            return
         if not isinstance(d, dict):
-            self.decision_row.set_subtitle(_('No decision yet (made at the first measurement after login)'))
+            self.screen_mode.set_label(_('Automatic'))
+            self.screen_why.set_label(_('No decision yet (made at the first measurement after login)'))
             return
         stage = SCREEN_STAGES[d['stage']] if isinstance(d.get('stage'), int) else '?'
-        # the result code written by the extension is shown translated
-        results = {'manual-kept': _('manual setting kept'), 'applied': _('applied'),
-                   'small-difference': _('difference too small')}
-        text = _('{time} · measurement {value} → {stage}, screen target {target} · {result}').format(
-            time=d.get('time', ''), value=d.get('median'), stage=stage, target=pct(d.get('target')),
-            result=results.get(d.get('result'), d.get('result')))
-        if d.get('result') == 'manual-kept':
-            text += ' ' + _('(brightness changed manually at {time}; ends when the ambient light moves to another '
-                            'level)').format(time=d.get('last_manual') or '?')
-        self.decision_row.set_subtitle(text)
+        light = _('{stage} (measurement {value})').format(stage=stage, value=d.get('median'))
+        if manual:
+            self.screen_mode.set_label(_('Adjusted by hand ({time})').format(time=(d.get('last_manual') or '?')[:5]))
+            self.screen_why.set_label(light + ' · ' + _('back to automatic when the light changes or after 20 minutes'))
+        else:
+            self.screen_mode.set_label(_('Automatic'))
+            self.screen_why.set_label(light + ' · ' + _('target {target}').format(target=pct(d.get('target'))))
 
     def _sync_method(self):
         """Levels method shows the percentages; relative method shows sensitivity and full brightness in sunlight."""
@@ -2537,11 +2561,12 @@ class Window(Adw.ApplicationWindow):
             kbd_group.add(r)
         prefs.add(kbd_group)
 
-        screen_group = Adw.PreferencesGroup(title=_('Screen Brightness'), description=_(
+        card_group = Adw.PreferencesGroup(title=_('Screen Brightness'), description=_(
             'The current brightness counts as your preference for the current light: the screen dims as the room '
             'gets darker and brightens as it gets lighter. Moving the brightness slider makes the light at that '
             'moment the new reference. It can also be turned on and off from the arrow next to the brightness '
             'slider in Quick Settings.'))
+        screen_group = Adw.PreferencesGroup()
         self.screen_row = Adw.SwitchRow(title=_('Adjust to ambient light'),
                                         subtitle=_('The brightness slider stays as fine-tuning'),
                                         active=cfg.get('screen_auto', False))
@@ -2587,10 +2612,25 @@ class Window(Adw.ApplicationWindow):
                  (self.sensitivity_row, 'display-brightness-symbolic', 'purple'),
                  (self.sun_full_row, 'weather-clear-symbolic', 'yellow'),
                  (self.sun_row, 'weather-clear-symbolic', 'orange'))
-        # the extension's last decision: why the screen is at this brightness
-        self.decision_row = Adw.ActionRow(title=_('Last decision'), subtitle='—', css_classes=['property'])
-        decorate((self.decision_row, 'dialog-information-symbolic', 'slate'))
-        for r in (self.screen_row, self.method_row, self.decision_row, self.sensitivity_row, self.sun_full_row, self.sun_row):
+        # the screen now and why (the extension's last decision) as a card, under the group title
+        self.screen_card = Gtk.Box(spacing=18, css_classes=['mode-banner', 'unknown'])
+        self.screen_pct = Gtk.Label(label='—', xalign=0, css_classes=['screen-percent'], valign=Gtk.Align.CENTER)
+        self.screen_card.append(self.screen_pct)
+        text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6, valign=Gtk.Align.CENTER, hexpand=True)
+        self.screen_mode = Gtk.Label(label='—', xalign=0, css_classes=['mode-title'])
+        self.screen_bar = Gtk.LevelBar(min_value=0, max_value=1, value=0, height_request=8)
+        self.screen_why = Gtk.Label(label='', xalign=0, css_classes=['screen-why'], wrap=True)
+        for w in (self.screen_mode, self.screen_bar, self.screen_why):
+            text.append(w)
+        self.screen_card.append(text)
+        self.screen_resume = Gtk.Button(label=_('Back to Automatic'), valign=Gtk.Align.CENTER,
+                                        css_classes=['pill'], visible=False)
+        self.screen_resume.connect('clicked', lambda *_: self._measure_light())
+        self.screen_card.append(self.screen_resume)
+        card_group.add(self.screen_card)
+        prefs.add(card_group)
+        self.screen_row.connect('notify::active', lambda *_a: self._show_decision())
+        for r in (self.screen_row, self.method_row, self.sensitivity_row, self.sun_full_row, self.sun_row):
             screen_group.add(r)
         prefs.add(screen_group)
 

@@ -9,7 +9,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: huma-control\n"
 "Report-Msgid-Bugs-To: aygkhn@gmail.com\n"
-"POT-Creation-Date: 2026-09-29 17:37+0300\n"
+"POT-Creation-Date: 2026-09-30 00:28+0300\n"
 "PO-Revision-Date: 2026-09-29 00:00+0300\n"
 "Last-Translator: Gokhan AY <aygkhn@gmail.com>\n"
 "Language-Team: Turkish\n"
@@ -65,7 +65,7 @@ msgid_plural "{n} days"
 msgstr[0] "{n} gün"
 msgstr[1] "{n} gün"
 
-#: huma-control:137 huma-control:1955
+#: huma-control:137 huma-control:1981
 msgid "Off"
 msgstr "Kapalı"
 
@@ -122,8 +122,8 @@ msgstr "Yüksek kapasite"
 msgid "Charges the battery fully; longest runtime"
 msgstr "Pil tam dolar; en uzun kullanım süresi"
 
-#: huma-control:149 huma-control:153 huma-control:165 huma-control:1212
-#: huma-control:2414 huma-control:2988
+#: huma-control:149 huma-control:153 huma-control:165 huma-control:1224
+#: huma-control:2440 huma-control:3034
 msgid "Balanced"
 msgstr "Dengeli"
 
@@ -143,15 +143,15 @@ msgstr "Çoğunlukla prizdeyken; pili daha az doldurarak korur"
 msgid "Quiet"
 msgstr "Sessiz"
 
-#: huma-control:155 huma-control:2333
+#: huma-control:155 huma-control:2359
 msgid "Low"
 msgstr "Düşük"
 
-#: huma-control:155 huma-control:2333
+#: huma-control:155 huma-control:2359
 msgid "Medium"
 msgstr "Orta"
 
-#: huma-control:156 huma-control:2333
+#: huma-control:156 huma-control:2359
 msgid "High"
 msgstr "Yüksek"
 
@@ -159,7 +159,7 @@ msgstr "Yüksek"
 msgid "38 W, 35 W on battery"
 msgstr "38 W, pilde 35 W"
 
-#: huma-control:165 huma-control:2301
+#: huma-control:165 huma-control:2327
 msgid "Cool"
 msgstr "Serin"
 
@@ -239,36 +239,36 @@ msgid "Terminal: {name}"
 msgstr "Terminal: {name}"
 
 #. Translators: {time} is a duration like "5 seconds"; short intervals are for testing only
-#: huma-control:316
+#: huma-control:318
 #, python-brace-format
 msgid "{time} (test)"
 msgstr "{time} (test)"
 
-#: huma-control:322
+#: huma-control:324
 msgid "Battery charging"
 msgstr "Pil şarjı"
 
-#: huma-control:322
+#: huma-control:324
 msgid "When plugged in, the battery charges first"
 msgstr "Prizdeyken önce pil dolar"
 
-#: huma-control:323 huma-control:1054 huma-control:1213 huma-control:2415
-#: huma-control:2989
+#: huma-control:325 huma-control:1066 huma-control:1225 huma-control:2441
+#: huma-control:3035
 msgid "Performance"
 msgstr "Performans"
 
-#: huma-control:323
+#: huma-control:325
 msgid ""
 "When plugged in, power goes to the CPU first and the battery charges more "
 "slowly"
 msgstr "Prizdeyken güç önce işlemciye verilir, pil daha yavaş dolar"
 
-#: huma-control:330
+#: huma-control:332
 msgid "CPU is overheating"
 msgstr "İşlemci çok ısındı"
 
 #. Translators: {temp} is the CPU temperature in °C
-#: huma-control:332
+#: huma-control:334
 #, python-brace-format
 msgid ""
 "CPU at {temp} °C. Make sure the air vents are not blocked; Fan Boost can be "
@@ -277,30 +277,30 @@ msgstr ""
 "İşlemci {temp} °C. Havalandırma deliklerinin açık olduğundan emin olun; "
 "Performans sayfasından Fan Boost açılabilir."
 
-#: huma-control:334
+#: huma-control:336
 msgid "Fan failure"
 msgstr "Fan arızası"
 
-#: huma-control:334
+#: huma-control:336
 msgid ""
 "The controller reports a fan failure (the fan is not spinning or is stuck)."
 msgstr "Kontrolcü fan arızası bildiriyor (fan dönmüyor ya da takılı)."
 
-#: huma-control:335
+#: huma-control:337
 msgid "Fan is not spinning"
 msgstr "Fan dönmüyor"
 
-#: huma-control:335
+#: huma-control:337
 #, python-brace-format
 msgid "The fan is stopped although the CPU is at {temp} °C."
 msgstr "İşlemci {temp} °C olduğu hâlde fan duruyor."
 
-#: huma-control:336
+#: huma-control:338
 msgid "Battery health has dropped"
 msgstr "Pil sağlığı düştü"
 
 #. Translators: {percent} is already formatted as a percentage (e.g. 78%)
-#: huma-control:338
+#: huma-control:340
 #, python-brace-format
 msgid ""
 "When full, the battery holds {full_wh} Wh (design {design_wh} Wh, "
@@ -311,242 +311,242 @@ msgstr ""
 "bakımında \"Dengeli\" ya da \"Sabit kullanım\" pili korur."
 
 #. Translators: why an automatic performance profile is active; {name} is the rule's app name
-#: huma-control:362
+#: huma-control:364
 #, python-brace-format
 msgid "app: {name}"
 msgstr "uygulama: {name}"
 
-#: huma-control:362
+#: huma-control:364
 msgid "night hours"
 msgstr "gece saatleri"
 
-#: huma-control:362
+#: huma-control:364
 msgid "on AC"
 msgstr "prizde"
 
-#: huma-control:362
+#: huma-control:364
 msgid "on battery"
 msgstr "pilde"
 
-#: huma-control:379
+#: huma-control:381
 msgid "Another setting is being applied, try again later"
 msgstr "Başka bir ayar uygulanıyor, sonra tekrar deneyin"
 
-#: huma-control:380
+#: huma-control:382
 msgid "The qc71_laptop driver is not loaded"
 msgstr "qc71_laptop sürücüsü yüklü değil"
 
-#: huma-control:381
+#: huma-control:383
 msgid "This feature is not supported on this device"
 msgstr "Bu özellik bu cihazda desteklenmiyor"
 
-#: huma-control:382
+#: huma-control:384
 msgid "The controller did not accept the setting"
 msgstr "Kontrolcü ayarı kabul etmedi"
 
-#: huma-control:383
+#: huma-control:385
 msgid "Turn off \"Power on when plugged in\" first"
 msgstr "Önce \"Priz takılınca açıl\" ayarını kapatın"
 
-#: huma-control:385
+#: huma-control:387
 msgid "UEFI variable is not in the expected format; left untouched"
 msgstr "UEFI değişkeni beklenen biçimde değil, dokunulmadı"
 
-#: huma-control:386
+#: huma-control:388
 msgid "This device does not support power on with AC"
 msgstr "Bu cihaz AC ile açılmayı desteklemiyor"
 
-#: huma-control:387
+#: huma-control:389
 msgid "Turn off \"USB power while off\" first"
 msgstr "Önce \"Kapalıyken USB güç\" ayarını kapatın"
 
-#: huma-control:389
+#: huma-control:391
 msgid "Could not verify the UEFI variable; the previous value was restored"
 msgstr "UEFI değişkeni doğrulanamadı, eski hali geri yazıldı"
 
-#: huma-control:390
+#: huma-control:392
 msgid "Power on with AC setting not found on this device"
 msgstr "Bu cihazda AC ile açılma ayarı bulunamadı"
 
-#: huma-control:391
+#: huma-control:393
 msgid "camera not found"
 msgstr "kamera bulunamadı"
 
-#: huma-control:392
+#: huma-control:394
 msgid "camera is open in another application"
 msgstr "kamera başka bir uygulamada açık"
 
-#: huma-control:393
+#: huma-control:395
 msgid "could not get an image from the camera"
 msgstr "kameradan görüntü alınamadı"
 
-#: huma-control:394
+#: huma-control:396
 msgid "could not get an image from the IR camera"
 msgstr "IR kameradan görüntü alınamadı"
 
 #. Translators: {error} is a more detailed error message
-#: huma-control:397
+#: huma-control:399
 #, python-brace-format
 msgid "Invalid settings: {error}"
 msgstr "Geçersiz ayarlar: {error}"
 
-#: huma-control:398
+#: huma-control:400
 #, python-brace-format
 msgid "measurement failed: {error}"
 msgstr "ölçüm başarısız: {error}"
 
-#: huma-control:399
+#: huma-control:401
 #, python-brace-format
 msgid "check failed: {error}"
 msgstr "denetim başarısız: {error}"
 
-#: huma-control:545
+#: huma-control:557
 msgid "Model"
 msgstr "Model"
 
-#: huma-control:546
+#: huma-control:558
 msgid "Motherboard"
 msgstr "Anakart"
 
-#: huma-control:548
+#: huma-control:560
 msgid "Embedded controller (EC) project ID"
 msgstr "Kontrolcü (EC) proje kimliği"
 
-#: huma-control:550
+#: huma-control:562
 msgid "Processor"
 msgstr "İşlemci"
 
-#: huma-control:551
+#: huma-control:563
 msgid "Memory"
 msgstr "Bellek"
 
-#: huma-control:552
+#: huma-control:564
 msgid "Kernel"
 msgstr "Çekirdek"
 
-#: huma-control:553
+#: huma-control:565
 msgid "qc71_laptop driver"
 msgstr "qc71_laptop sürücüsü"
 
-#: huma-control:554
+#: huma-control:566
 msgid "loaded"
 msgstr "yüklü"
 
-#: huma-control:554
+#: huma-control:566
 msgid "not loaded"
 msgstr "yüklü değil"
 
-#: huma-control:609
+#: huma-control:621
 msgid "Not authorized"
 msgstr "Yetki verilmedi"
 
-#: huma-control:610
+#: huma-control:622
 msgid "Operation failed"
 msgstr "İşlem başarısız"
 
-#: huma-control:661
+#: huma-control:673
 #, python-brace-format
 msgid "{hours} h {minutes} min"
 msgstr "{hours} sa {minutes} dk"
 
-#: huma-control:662
+#: huma-control:674
 #, python-brace-format
 msgid "{minutes} min"
 msgstr "{minutes} dk"
 
-#: huma-control:723
+#: huma-control:735
 msgid "3 min ago"
 msgstr "3 dk önce"
 
-#: huma-control:724
+#: huma-control:736
 msgid "now"
 msgstr "şimdi"
 
 #. Translators: strftime format for chart labels (day, month and time)
-#: huma-control:1000
+#: huma-control:1012
 #, no-python-format
 msgid "%m/%d %H:%M"
 msgstr "%d.%m %H:%M"
 
 #. Translators: strftime format for chart labels (day and month)
-#: huma-control:1004
+#: huma-control:1016
 #, no-python-format
 msgid "%m/%d"
 msgstr "%d.%m"
 
-#: huma-control:1012
+#: huma-control:1024
 msgid "No records yet"
 msgstr "Henüz kayıt yok"
 
-#: huma-control:1053 huma-control:1077
+#: huma-control:1065 huma-control:1089
 msgid "Overview"
 msgstr "Genel"
 
-#: huma-control:1055
+#: huma-control:1067
 msgid "Automation"
 msgstr "Otomatik"
 
-#: huma-control:1056 huma-control:1170
+#: huma-control:1068 huma-control:1182
 msgid "Fan"
 msgstr "Fan"
 
-#: huma-control:1057
+#: huma-control:1069
 msgid "Keyboard"
 msgstr "Klavye"
 
-#: huma-control:1058
+#: huma-control:1070
 msgid "Ambient Light"
 msgstr "Ortam ışığı"
 
-#: huma-control:1059 huma-control:1172
+#: huma-control:1071 huma-control:1184
 msgid "Battery"
 msgstr "Pil"
 
-#: huma-control:1060
+#: huma-control:1072
 msgid "Power Saving"
 msgstr "Tasarruf"
 
-#: huma-control:1061 huma-control:2045
+#: huma-control:1073 huma-control:2071
 msgid "History"
 msgstr "Geçmiş"
 
-#: huma-control:1062
+#: huma-control:1074
 msgid "About"
 msgstr "Bilgi"
 
-#: huma-control:1080
+#: huma-control:1092
 msgid "Pages"
 msgstr "Sayfalar"
 
-#: huma-control:1155
+#: huma-control:1167
 msgid "Laptop"
 msgstr "Dizüstü"
 
-#: huma-control:1169
+#: huma-control:1181
 msgid "CPU"
 msgstr "İşlemci"
 
-#: huma-control:1171
+#: huma-control:1183
 msgid "Power draw"
 msgstr "Güç çekişi"
 
-#: huma-control:1178
+#: huma-control:1190
 msgid "Last 3 minutes"
 msgstr "Son 3 dakika"
 
-#: huma-control:1179 huma-control:1250
+#: huma-control:1191 huma-control:1262
 msgid "CPU temperature"
 msgstr "İşlemci sıcaklığı"
 
-#: huma-control:1179
+#: huma-control:1191
 msgid "Fan speed (0–5000 rpm)"
 msgstr "Fan hızı (0–5000 dev/dk)"
 
-#: huma-control:1204
+#: huma-control:1216
 msgid "Power Mode"
 msgstr "Güç kipi"
 
-#: huma-control:1205
+#: huma-control:1217
 msgid ""
 "Power Saver = Quiet 20 dB (15 W), Balanced = Balanced Medium (Quiet 20 dB on "
 "battery if the battery power-saving profile is on), Performance = Balanced "
@@ -556,20 +556,20 @@ msgstr ""
 "profili açıksa Sessiz 20 dB), Performans = Dengeli Yüksek. Hızlı "
 "Ayarlar'daki Performans kutusuyla aynıdır."
 
-#: huma-control:1208
+#: huma-control:1220
 msgctxt "power mode"
 msgid "Mode"
 msgstr "Kip"
 
-#: huma-control:1211 huma-control:2414 huma-control:2988
+#: huma-control:1223 huma-control:2440 huma-control:3034
 msgid "Power Saver"
 msgstr "Tasarruf"
 
-#: huma-control:1217
+#: huma-control:1229
 msgid "Fine Tuning"
 msgstr "İnce ayar"
 
-#: huma-control:1218
+#: huma-control:1230
 msgid ""
 "The controller mode itself: in Balanced mode the CPU can use full power; in "
 "Quiet mode power and fan noise are limited. When the power mode changes, "
@@ -578,25 +578,25 @@ msgstr ""
 "Kontrolcü modu doğrudan: Dengeli modda işlemci tam güç kullanabilir; Sessiz "
 "modda güç ve fan sesi sınırlanır. Güç kipi değişince bu ayar kipe uyar."
 
-#: huma-control:1220 huma-control:1263 huma-control:1665 huma-control:1762
+#: huma-control:1232 huma-control:1275 huma-control:1677 huma-control:1774
 msgid "Mode"
 msgstr "Mod"
 
-#: huma-control:1225
+#: huma-control:1237
 msgid "Level"
 msgstr "Seviye"
 
-#: huma-control:1230 huma-control:1265 huma-control:2309 huma-control:2317
+#: huma-control:1242 huma-control:1277 huma-control:2335 huma-control:2343
 msgid "Fan Boost"
 msgstr "Fan Boost"
 
-#: huma-control:1231
+#: huma-control:1243
 msgid ""
 "Fan always at full speed: the CPU doesn't slow down under long loads, but "
 "it's loud"
 msgstr "Fan sürekli tam hızda: uzun yükte işlemci yavaşlamaz, ama gürültülüdür"
 
-#: huma-control:1239
+#: huma-control:1251
 msgid ""
 "The driver doesn't support performance modes or isn't loaded. To install: ./"
 "install.sh"
@@ -604,27 +604,27 @@ msgstr ""
 "Sürücü performans modunu desteklemiyor ya da yüklü değil. Kurmak için: ./"
 "install.sh"
 
-#: huma-control:1247
+#: huma-control:1259
 msgid "Current Status"
 msgstr "Anlık durum"
 
-#: huma-control:1248
+#: huma-control:1260
 msgid "Fan speed"
 msgstr "Fan hızı"
 
-#: huma-control:1249
+#: huma-control:1261
 msgid "Fan sensor temperature"
 msgstr "Fan sensörü sıcaklığı"
 
-#: huma-control:1251
+#: huma-control:1263
 msgid "Fan power"
 msgstr "Fan gücü"
 
-#: huma-control:1259
+#: huma-control:1271
 msgid "Fan Mode"
 msgstr "Fan modu"
 
-#: huma-control:1260
+#: huma-control:1272
 msgid ""
 "In Automatic mode the laptop manages the fan itself based on temperature. "
 "Fan Boost runs the fan at full speed all the time: it keeps the CPU from "
@@ -635,11 +635,11 @@ msgstr ""
 "fanı sürekli tam hızda çalıştırır: oyun ve uzun derlemelerde işlemcinin "
 "yavaşlamasını önler ama gürültülüdür ve pili daha hızlı bitirir."
 
-#: huma-control:1265 huma-control:2309
+#: huma-control:1277 huma-control:1882 huma-control:1891 huma-control:2335
 msgid "Automatic"
 msgstr "Otomatik"
 
-#: huma-control:1272
+#: huma-control:1284
 msgid ""
 "The qc71_laptop driver isn't loaded; fan information can't be read. To "
 "install: ./install.sh"
@@ -647,50 +647,50 @@ msgstr ""
 "qc71_laptop sürücüsü yüklü değil; fan bilgileri okunamıyor. Kurmak için: ./"
 "install.sh"
 
-#: huma-control:1280
+#: huma-control:1292
 msgid "Backlight"
 msgstr "Arka ışık"
 
-#: huma-control:1281
+#: huma-control:1293
 msgid "Brightness"
 msgstr "Parlaklık"
 
-#: huma-control:1287
+#: huma-control:1299
 msgid "Turn off when idle"
 msgstr "Boştayken kapan"
 
-#: huma-control:1293
+#: huma-control:1305
 msgid "Start off during daytime"
 msgstr "Gündüz kapalı başlasın"
 
-#: huma-control:1303
+#: huma-control:1315
 msgid "Turn on/off by ambient light"
 msgstr "Ortam ışığına göre aç/kapat"
 
-#: huma-control:1304
+#: huma-control:1316
 msgid ""
 "Turns on when the room is dark and off when it's bright: on the Ambient "
 "Light page"
 msgstr "Oda karanlıksa açılır, aydınlıksa kapanır: Ortam ışığı sayfasında"
 
-#: huma-control:1312
+#: huma-control:1324
 msgid "Keys"
 msgstr "Tuşlar"
 
-#: huma-control:1313
+#: huma-control:1325
 msgid "Lock the Windows key"
 msgstr "Windows tuşunu kilitle"
 
-#: huma-control:1314
+#: huma-control:1326
 msgid ""
 "Don't open the Activities overview when it's pressed by accident while gaming"
 msgstr "Oyunda yanlışlıkla basınca Etkinlikler ekranı açılmasın"
 
-#: huma-control:1318
+#: huma-control:1330
 msgid "Fn lock"
 msgstr "Fn kilidi"
 
-#: huma-control:1319
+#: huma-control:1331
 msgid ""
 "When on, F1–F12 work as function keys instead of media and display keys "
 "without pressing Fn"
@@ -698,19 +698,19 @@ msgstr ""
 "Açıkken F1–F12 tuşları Fn'ye basmadan medya ve ekran işlevlerini değil, F "
 "tuşu olarak çalışır"
 
-#: huma-control:1323
+#: huma-control:1335
 msgid "Touchpad shortcut"
 msgstr "Dokunmatik yüzey kısayolu"
 
-#: huma-control:1324
+#: huma-control:1336
 msgid "Enable the Fn key that turns the touchpad off and on"
 msgstr "Fn ile dokunmatik yüzeyi kapatıp açan tuş çalışsın"
 
-#: huma-control:1337
+#: huma-control:1349
 msgid "Power Saving Options"
 msgstr "Tasarruf ayarları"
 
-#: huma-control:1338
+#: huma-control:1350
 msgid ""
 "The power mode (Power Saver / Balanced / Performance) is on the Performance "
 "page and in the Performance tile in Quick Settings."
@@ -718,11 +718,11 @@ msgstr ""
 "Güç kipi (Tasarruf / Dengeli / Performans) Performans sayfasında ve Hızlı "
 "Ayarlar'daki Performans kutusunda."
 
-#: huma-control:1342
+#: huma-control:1354
 msgid "Power-saving automations on battery only"
 msgstr "Tasarruf otomasyonları yalnız pildeyken"
 
-#: huma-control:1343
+#: huma-control:1355
 msgid ""
 "When plugged in, the keyboard backlight isn't turned off in daytime or "
 "bright light; ambient light is measured every 10 minutes. Turning off when "
@@ -733,39 +733,39 @@ msgstr ""
 "dakikada bir. Boştayken kapanma, karanlıkta açılma ve kimse yoksa kilitleme "
 "prizde de sürer. Priz çıkınca hemen devreye girer."
 
-#: huma-control:1349
+#: huma-control:1361
 msgid "Power saving will work on battery only"
 msgstr "Tasarruf yalnız pildeyken çalışacak"
 
-#: huma-control:1350
+#: huma-control:1362
 msgid "Power saving will also work when plugged in"
 msgstr "Tasarruf prizde de çalışacak"
 
-#: huma-control:1353
+#: huma-control:1365
 msgid "Power-saving profile on battery"
 msgstr "Pilde tasarruf profili"
 
-#: huma-control:1354
+#: huma-control:1366
 msgid "On battery, Balanced uses Quiet 20 dB mode (15 W) with turbo off"
 msgstr "Pildeyken Dengeli seçiliyse turbo kapalı ve Sessiz 20 dB modu (15 W)"
 
-#: huma-control:1357
+#: huma-control:1369
 msgid "SD card reader"
 msgstr "SD kart okuyucu"
 
-#: huma-control:1360
+#: huma-control:1372
 msgid "Download updates in the background"
 msgstr "Güncellemeleri arka planda indir"
 
-#: huma-control:1361
+#: huma-control:1373
 msgid "When off, updates are downloaded when you press \"Update\""
 msgstr "Kapalıyken indirme \"Güncelle\"ye basınca yapılır"
 
-#: huma-control:1378
+#: huma-control:1390
 msgid "While Powered Off"
 msgstr "Bilgisayar kapalıyken"
 
-#: huma-control:1379
+#: huma-control:1391
 msgid ""
 "The two can't be on at the same time (same as in Monster Control Center). "
 "The power-on setting is stored in UEFI, asks for the administrator password "
@@ -774,56 +774,56 @@ msgstr ""
 "İkisi aynı anda açık olamaz (Monster Control Center'da da öyle). Priz ayarı "
 "UEFI'de tutulur, yönetici şifresi ister ve yeniden başlatınca etkinleşir."
 
-#: huma-control:1382
+#: huma-control:1394
 msgid "Power on when plugged in"
 msgstr "Priz takılınca otomatik açıl"
 
-#: huma-control:1383
+#: huma-control:1395
 msgid ""
 "The computer turns itself on when the charger is connected while it's off"
 msgstr "Kapalıyken şarj aleti takılınca bilgisayar kendiliğinden açılır"
 
-#: huma-control:1386
+#: huma-control:1398
 msgid "USB power while off"
 msgstr "Kapalıyken USB güç"
 
-#: huma-control:1387
+#: huma-control:1399
 msgid "Charge a phone over USB while the computer is off or hibernating"
 msgstr "Kapalı ya da hazırda bekletmedeyken USB'den telefon şarj edilebilir"
 
-#: huma-control:1397
+#: huma-control:1409
 msgid "Battery Status"
 msgstr "Pil durumu"
 
-#: huma-control:1399
+#: huma-control:1411
 msgid "Charge"
 msgstr "Doluluk"
 
-#: huma-control:1399
+#: huma-control:1411
 msgid "Full charge capacity"
 msgstr "Tam dolu kapasite"
 
-#: huma-control:1399
+#: huma-control:1411
 msgid "Design capacity"
 msgstr "Tasarım kapasitesi"
 
-#: huma-control:1400
+#: huma-control:1412
 msgid "Battery health"
 msgstr "Pil sağlığı"
 
-#: huma-control:1400
+#: huma-control:1412
 msgid "Charge cycles"
 msgstr "Şarj döngüsü"
 
-#: huma-control:1400
+#: huma-control:1412
 msgid "Type"
 msgstr "Tür"
 
-#: huma-control:1410
+#: huma-control:1422
 msgid "Apps Using the Most Battery"
 msgstr "Pili en çok kullanan uygulamalar"
 
-#: huma-control:1411
+#: huma-control:1423
 msgid ""
 "An estimate: the screen's share and the idle baseline are subtracted from "
 "the power measured on battery, and the rest is split between apps by CPU and "
@@ -834,31 +834,31 @@ msgstr ""
 "kalan uygulamalara işlemci ve ekran kartı kullanımı oranında paylaştırılır. "
 "Prizdeyken sayılmaz. Ayrıntı, kapatma ve kaldırma için uygulamaya tıkla."
 
-#: huma-control:1414 huma-control:2185
+#: huma-control:1426 huma-control:2211
 msgid "System"
 msgstr "Sistem"
 
-#: huma-control:1415
+#: huma-control:1427
 msgid "Screen, idle consumption, desktop and background services."
 msgstr "Ekran, boştaki tüketim, masaüstü ve arka plan servisleri."
 
-#: huma-control:1417
+#: huma-control:1429
 msgid "Since last charge"
 msgstr "Son şarjdan beri"
 
-#: huma-control:1417
+#: huma-control:1429
 msgid "Last 24 hours"
 msgstr "Son 24 saat"
 
-#: huma-control:1421
+#: huma-control:1433
 msgid "Period"
 msgstr "Dönem"
 
-#: huma-control:1431
+#: huma-control:1443
 msgid "Battery Care"
 msgstr "Pil bakımı"
 
-#: huma-control:1432
+#: huma-control:1444
 msgid ""
 "If the computer is mostly plugged in, keeping the battery full all the time "
 "wears it out. The equivalent of the battery protection mode in Monster "
@@ -867,141 +867,141 @@ msgstr ""
 "Bilgisayar çoğunlukla prizdeyse pilin sürekli tam dolu durması onu yıpratır. "
 "Monster Control Center'daki pil koruma modunun karşılığı."
 
-#: huma-control:1434
+#: huma-control:1446
 msgid "Charging priority"
 msgstr "Şarj önceliği"
 
-#: huma-control:1437
+#: huma-control:1449
 msgid "Charging profile"
 msgstr "Şarj profili"
 
-#: huma-control:1454
+#: huma-control:1466
 #, python-brace-format
 msgid "since {date}"
 msgstr "{date} tarihinden beri"
 
-#: huma-control:1462
+#: huma-control:1474
 msgid "in the last 24 hours"
 msgstr "son 24 saatte"
 
-#: huma-control:1473
+#: huma-control:1485
 msgid "No data yet"
 msgstr "Henüz veri yok"
 
-#: huma-control:1474
+#: huma-control:1486
 msgid "Measured every minute while on battery"
 msgstr "Pildeyken dakikada bir ölçülür"
 
-#: huma-control:1488
+#: huma-control:1500
 msgid "Other background tasks"
 msgstr "Diğer arka plan işleri"
 
-#: huma-control:1493
+#: huma-control:1505
 msgid "Other apps"
 msgstr "Diğer uygulamalar"
 
-#: huma-control:1497
+#: huma-control:1509
 msgid "None"
 msgstr "Yok"
 
-#: huma-control:1497
+#: huma-control:1509
 msgid "No app used the battery in this period"
 msgstr "Bu dönemde pil kullanan uygulama olmadı"
 
-#: huma-control:1510
+#: huma-control:1522
 #, python-brace-format
 msgid "Total {energy} Wh"
 msgstr "Toplam {energy} Wh"
 
-#: huma-control:1518
+#: huma-control:1530
 #, python-brace-format
 msgid "Battery share: {percent} ({energy} Wh)"
 msgstr "Pil payı: {percent} ({energy} Wh)"
 
-#: huma-control:1521
+#: huma-control:1533
 #, python-brace-format
 msgid "Running process ({count}):"
 msgid_plural "Running processes ({count}):"
 msgstr[0] "Çalışan süreçler ({count}):"
 msgstr[1] "Çalışan süreçler ({count}):"
 
-#: huma-control:1524
+#: huma-control:1536
 #, python-brace-format
 msgid "{name} (PID {pid}) · CPU {cpu} s · memory {memory} MB"
 msgstr "{name} (PID {pid}) · işlemci {cpu} sn · bellek {memory} MB"
 
-#: huma-control:1527
+#: huma-control:1539
 #, python-brace-format
 msgid "Command: {command}"
 msgstr "Komut: {command}"
 
-#: huma-control:1529
+#: huma-control:1541
 msgid "Not running right now."
 msgstr "Şu an çalışmıyor."
 
-#: huma-control:1531
+#: huma-control:1543
 msgid "OK"
 msgstr "Tamam"
 
-#: huma-control:1532
+#: huma-control:1544
 msgid "Uninstall…"
 msgstr "Kaldır…"
 
-#: huma-control:1533
+#: huma-control:1545
 msgid "Force Quit"
 msgstr "Zorla kapat"
 
-#: huma-control:1534
+#: huma-control:1546
 msgid "Quit"
 msgstr "Kapat"
 
-#: huma-control:1553
+#: huma-control:1565
 #, python-brace-format
 msgid "{name}: {count} process quit"
 msgid_plural "{name}: {count} processes quit"
 msgstr[0] "{name}: {count} süreç kapatıldı"
 msgstr[1] "{name}: {count} süreç kapatıldı"
 
-#: huma-control:1555
+#: huma-control:1567
 #, python-brace-format
 msgid "{name}: {count} process killed"
 msgid_plural "{name}: {count} processes killed"
 msgstr[0] "{name}: {count} süreç zorla kapatıldı"
 msgstr[1] "{name}: {count} süreç zorla kapatıldı"
 
-#: huma-control:1562
+#: huma-control:1574
 msgid "GNOME Software not found"
 msgstr "GNOME Yazılım bulunamadı"
 
-#: huma-control:1567
+#: huma-control:1579
 msgid "Language"
 msgstr "Dil"
 
-#: huma-control:1568
+#: huma-control:1580
 msgid "System default"
 msgstr "Sistem dili"
 
-#: huma-control:1569
+#: huma-control:1581
 msgid "App language"
 msgstr "Uygulama dili"
 
-#: huma-control:1569
+#: huma-control:1581
 msgid "The app restarts to apply it"
 msgstr "Uygulanması için uygulama yeniden başlar"
 
-#: huma-control:1593
+#: huma-control:1605
 msgid "Device Information"
 msgstr "Cihaz bilgisi"
 
-#: huma-control:1604
+#: huma-control:1616
 msgid "Troubleshooting"
 msgstr "Sorun giderme"
 
-#: huma-control:1605
+#: huma-control:1617
 msgid "Diagnostic report"
 msgstr "Tanı raporu"
 
-#: huma-control:1606
+#: huma-control:1618
 msgid ""
 "Collects driver, service and settings status into one file (in the Documents "
 "folder); share this file if something goes wrong"
@@ -1009,46 +1009,46 @@ msgstr ""
 "Sürücü, servis ve ayar durumunu tek dosyada toplar (Belgeler klasörüne); bir "
 "sorun olursa bu dosyayı paylaş"
 
-#: huma-control:1608
+#: huma-control:1620
 msgid "Create"
 msgstr "Oluştur"
 
-#: huma-control:1614
+#: huma-control:1626
 msgid "Recommended Tools"
 msgstr "Önerilen araçlar"
 
-#: huma-control:1615
+#: huma-control:1627
 msgid "Linux equivalents of some Monster Control Center features."
 msgstr "Monster Control Center'daki bazı özelliklerin Linux karşılıkları."
 
-#: huma-control:1616
+#: huma-control:1628
 msgid "Night Light"
 msgstr "Gece Işığı"
 
-#: huma-control:1616
+#: huma-control:1628
 msgid "Settings → Displays: makes the screen warmer in the evening"
 msgstr "Ayarlar → Ekranlar: akşamları ekranı sarıya çeker"
 
-#: huma-control:1617
+#: huma-control:1629
 msgid "In-game FPS, temperature and power overlay (sudo dnf install mangohud)"
 msgstr "Oyunda FPS, sıcaklık ve güç göstergesi (sudo dnf install mangohud)"
 
-#: huma-control:1618
+#: huma-control:1630
 msgid ""
 "Key remapping (the equivalent of the key settings in Monster Control Center)"
 msgstr ""
 "Tuşları yeniden eşleme (Monster Control Center'daki tuş ayarlarının "
 "karşılığı)"
 
-#: huma-control:1631
+#: huma-control:1643
 msgid "Don't change"
 msgstr "Değiştirme"
 
-#: huma-control:1633
+#: huma-control:1645
 msgid "Automatic Profiles"
 msgstr "Otomatik profiller"
 
-#: huma-control:1634
+#: huma-control:1646
 msgid ""
 "The Huma Control Center service changes the performance mode by itself based "
 "on conditions, even when you're logged out. Priority: open app > night hours "
@@ -1060,19 +1060,19 @@ msgstr ""
 "prizde/pilde. Hiçbir kural uymayınca önceki moda döner; elle seçtiğin mod, "
 "koşullar değişene kadar korunur."
 
-#: huma-control:1637
+#: huma-control:1649
 msgid "Change mode by rules"
 msgstr "Kurallara göre modu değiştir"
 
-#: huma-control:1638
+#: huma-control:1650
 msgid "Now"
 msgstr "Şu an"
 
-#: huma-control:1645
+#: huma-control:1657
 msgid "By Power Source"
 msgstr "Güç kaynağına göre"
 
-#: huma-control:1646
+#: huma-control:1658
 msgid ""
 "With \"Don't change\" the power mode applies; on battery, if \"Power-saving "
 "profile on battery\" on the Power Saving page is on, the Balanced mode runs "
@@ -1082,39 +1082,39 @@ msgstr ""
 "\"Pilde tasarruf profili\" açıksa Dengeli kip Sessiz 20 dB çalışır. Burada "
 "bir mod seçersen o önceliklidir."
 
-#: huma-control:1649
+#: huma-control:1661
 msgid "When plugged in"
 msgstr "Prizdeyken"
 
-#: huma-control:1650
+#: huma-control:1662
 msgid "When on battery"
 msgstr "Pildeyken"
 
-#: huma-control:1659
+#: huma-control:1671
 msgid "Night"
 msgstr "Gece"
 
-#: huma-control:1659
+#: huma-control:1671
 msgid "Keep the fan quiet during set hours (e.g. at night)."
 msgstr "Belirlenen saatlerde (ör. geceleri) fan sesi az olsun."
 
-#: huma-control:1662
+#: huma-control:1674
 msgid "During night hours"
 msgstr "Gece saatlerinde"
 
-#: huma-control:1663
+#: huma-control:1675
 msgid "Start (HH:MM)"
 msgstr "Başlangıç (SS:DD)"
 
-#: huma-control:1664
+#: huma-control:1676
 msgid "End (HH:MM)"
 msgstr "Bitiş (SS:DD)"
 
-#: huma-control:1673
+#: huma-control:1685
 msgid "Apps"
 msgstr "Uygulamalar"
 
-#: huma-control:1674
+#: huma-control:1686
 msgid ""
 "While one of these apps is open, the chosen mode is used. E.g. Quiet 20 dB "
 "for the browser on battery: the CPU draws less power while you watch videos."
@@ -1122,78 +1122,78 @@ msgstr ""
 "Bu uygulamalardan biri açıkken seçilen mod kullanılır. Ör. tarayıcı için "
 "pildeyken Sessiz 20 dB: video izlerken işlemci daha az güç çeker."
 
-#: huma-control:1676 huma-control:1772 huma-control:1798
+#: huma-control:1688 huma-control:1784 huma-control:1810
 msgid "Add"
 msgstr "Ekle"
 
-#: huma-control:1678
+#: huma-control:1690
 msgid "Choose App…"
 msgstr "Uygulama seç…"
 
-#: huma-control:1679
+#: huma-control:1691
 msgid "By Command Line…"
 msgstr "Komut satırına göre…"
 
-#: huma-control:1694 huma-control:2616
+#: huma-control:1706 huma-control:2658
 msgid "Save"
 msgstr "Kaydet"
 
-#: huma-control:1706
+#: huma-control:1718
 msgid "while open"
 msgstr "açıkken"
 
-#: huma-control:1706
+#: huma-control:1718
 #, python-brace-format
 msgid "while “{match}” is running"
 msgstr "“{match}” çalışırken"
 
-#: huma-control:1708
+#: huma-control:1720
 msgid ", on battery only"
 msgstr ", yalnız pildeyken"
 
-#: huma-control:1711
+#: huma-control:1723
 msgid "Remove"
 msgstr "Kaldır"
 
-#: huma-control:1722
+#: huma-control:1734
 msgid "No rules"
 msgstr "Kural yok"
 
-#: huma-control:1722
+#: huma-control:1734
 msgid "Add one with \"Add\" at the top right"
 msgstr "Sağ üstteki \"Ekle\" ile ekle"
 
-#: huma-control:1728
+#: huma-control:1740
 #, python-brace-format
 msgid "There is already a rule for {name}"
 msgstr "{name} için zaten kural var"
 
-#: huma-control:1735
+#: huma-control:1747
 #, python-brace-format
 msgid "{name} added; press Save to apply"
 msgstr "{name} eklendi; uygulamak için Kaydet"
 
-#: huma-control:1741 huma-control:1787
+#: huma-control:1753 huma-control:1799
 msgid "App Rule"
 msgstr "Uygulama kuralı"
 
-#: huma-control:1741
+#: huma-control:1753
 msgid "Search for the app and choose it."
 msgstr "Uygulamayı ara ve seç."
 
-#: huma-control:1743
+#: huma-control:1755
 msgid "Search apps"
 msgstr "Uygulama ara"
 
-#: huma-control:1764 huma-control:1793
+#: huma-control:1776 huma-control:1805
 msgid "On battery only"
 msgstr "Yalnız pildeyken"
 
-#: huma-control:1771 huma-control:1797
+#: huma-control:1783 huma-control:1809
 msgid "Cancel"
 msgstr "Vazgeç"
 
-#: huma-control:1788
+#: huma-control:1800
 msgid ""
 "Enter some text that appears in the app's command line (e.g. \"code\" or the "
 "path of the program)."
@@ -1201,69 +1201,71 @@ msgstr ""
 "Uygulamanın komut satırında geçen bir metni yaz (ör. \"code\" ya da "
 "programın yolu)."
 
-#: huma-control:1790
+#: huma-control:1802
 msgid "Name (e.g. VS Code)"
 msgstr "Ad (ör. VS Code)"
 
-#: huma-control:1791
+#: huma-control:1803
 msgid "Text to look for"
 msgstr "Aranacak metin"
 
-#: huma-control:1823 huma-control:2714
+#: huma-control:1835 huma-control:2756
 msgid "Could not save"
 msgstr "Kaydedilemedi"
 
-#: huma-control:1828
+#: huma-control:1840
 msgid "Automatic profiles saved"
 msgstr "Otomatik profiller kaydedildi"
 
-#: huma-control:1846 huma-control:2822
+#: huma-control:1858 huma-control:2864
 msgid "Measuring…"
 msgstr "Ölçülüyor…"
 
-#: huma-control:1854
+#: huma-control:1878
+msgid "Manual brightness"
+msgstr "Elle parlaklık"
+
+#: huma-control:1879
+msgid "Automatic brightness is off: the slider sets the screen"
+msgstr "Otomatik parlaklık kapalı: ekranı kaydırıcı belirliyor"
+
+#: huma-control:1883
 msgid "No decision yet (made at the first measurement after login)"
 msgstr "Henüz karar yok (oturum açıldıktan sonraki ilk ölçümde)"
 
-#: huma-control:1858
-msgid "manual setting kept"
-msgstr "elle ayar korunuyor"
-
-#: huma-control:1858
-msgid "applied"
-msgstr "uygulandı"
-
-#: huma-control:1859
-msgid "difference too small"
-msgstr "fark küçük"
-
-#: huma-control:1860
+#: huma-control:1886
 #, python-brace-format
-msgid ""
-"{time} · measurement {value} → {stage}, screen target {target} · {result}"
-msgstr "{time} · ölçüm {value} → {stage}, ekran hedefi {target} · {result}"
+msgid "{stage} (measurement {value})"
+msgstr "{stage} (ölçüm {value})"
 
-#: huma-control:1864
+#: huma-control:1888
 #, python-brace-format
-msgid ""
-"(brightness changed manually at {time}; ends when the ambient light moves to "
-"another level)"
-msgstr "(parlaklık {time}'de elle değişti; ortam başka kademeye geçince biter)"
+msgid "Adjusted by hand ({time})"
+msgstr "Elle ayarlandı ({time})"
 
-#: huma-control:1883
+#: huma-control:1889
+msgid "back to automatic when the light changes or after 20 minutes"
+msgstr "ışık değişince ya da 20 dakika sonra otomatiğe döner"
+
+#: huma-control:1892
+#, python-brace-format
+msgid "target {target}"
+msgstr "hedef {target}"
+
+#: huma-control:1909
 msgid "NOW"
 msgstr "ŞU AN"
 
-#: huma-control:1891
+#: huma-control:1917
 #, python-brace-format
 msgid "Current ambient light: {stage}, screen {percent}."
 msgstr "Şu an ortam: {stage}, ekran {percent}."
 
-#: huma-control:1894
+#: huma-control:1920
 msgid "First measure the ambient light with \"Measure Now\"."
 msgstr "Önce \"Şimdi ölç\" ile ortamı ölç."
 
-#: huma-control:1896
+#: huma-control:1922
 msgid ""
 "Instead of typing a percentage, set the screen to what suits your eyes with "
 "the brightness slider (or the brightness keys), then press Save: the current "
@@ -1275,73 +1277,73 @@ msgstr ""
 "yüzdesi bu ortamın kademesine yazılır ve bundan sonra bu ışıkta ekran hep bu "
 "parlaklığa gelir."
 
-#: huma-control:1903
+#: huma-control:1929
 #, python-brace-format
 msgid "Measurement ~{value} and below"
 msgstr "Ölçüm ~{value} ve altı"
 
-#: huma-control:1903
+#: huma-control:1929
 #, python-brace-format
 msgid "Measurement ~{value}"
 msgstr "Ölçüm ~{value}"
 
-#: huma-control:1904
+#: huma-control:1930
 #, python-brace-format
 msgid "Measurement ~{value} (normal room)"
 msgstr "Ölçüm ~{value} (normal oda)"
 
-#: huma-control:1904
+#: huma-control:1930
 #, python-brace-format
 msgid "Measurement ~{value} (by a window)"
 msgstr "Ölçüm ~{value} (pencere kenarı)"
 
-#: huma-control:1905
+#: huma-control:1931
 #, python-brace-format
 msgid "Measurement ~{value} and above (sunlight threshold)"
 msgstr "Ölçüm ~{value} ve üstü (güneş eşiği)"
 
-#: huma-control:1910
+#: huma-control:1936
 msgid "Checking…"
 msgstr "Bakılıyor…"
 
-#: huma-control:1914
+#: huma-control:1940
 msgid "The camera is in use by another app: someone is assumed to be there"
 msgstr "Kamera başka bir uygulamada açık: biri var sayılır"
 
-#: huma-control:1915
+#: huma-control:1941
 msgid "Someone is there: the screen won't dim"
 msgstr "Biri var: ekran kararmaz"
 
-#: huma-control:1916
+#: huma-control:1942
 msgid "Nobody is there: the screen would lock and turn off"
 msgstr "Kimse yok: ekran kilitlenip kapanırdı"
 
-#: huma-control:1917
+#: huma-control:1943
 msgid "Could not check"
 msgstr "Bakılamadı"
 
-#: huma-control:1936
+#: huma-control:1962
 msgid "Measure first"
 msgstr "Önce ölçüm gerekli"
 
-#: huma-control:1936
+#: huma-control:1962
 msgid "Could not read the screen brightness"
 msgstr "Ekran parlaklığı okunamadı"
 
-#: huma-control:1940
+#: huma-control:1966
 #, python-brace-format
 msgid "Saved: in \"{stage}\" light the screen is now at {percent}"
 msgstr "Kaydedildi: \"{stage}\" ortamda ekran artık {percent}"
 
-#: huma-control:1955
+#: huma-control:1981
 msgid "No rule applies"
 msgstr "Kural uygulanmıyor"
 
-#: huma-control:1960
+#: huma-control:1986
 msgid "Fan Curve"
 msgstr "Fan eğrisi"
 
-#: huma-control:1961
+#: huma-control:1987
 msgid ""
 "When off, Monster Control Center's tables are used (each performance mode "
 "has its own curve). When on, the curve below applies in all modes. Drag the "
@@ -1355,43 +1357,43 @@ msgstr ""
 "70 °C'de en az %20 döner; işlemcinin kendi ısı koruması (yavaşlatma, "
 "gerekirse kapanma) her zaman devrededir."
 
-#: huma-control:1965
+#: huma-control:1991
 msgid "Custom fan curve"
 msgstr "Özel fan eğrisi"
 
-#: huma-control:1974
+#: huma-control:2000
 msgid "Fan power when cool"
 msgstr "Serinken fan gücü"
 
-#: huma-control:1975
+#: huma-control:2001
 msgid "Below the first point (0 = fan stops)"
 msgstr "İlk noktanın altında (0 = fan durur)"
 
-#: huma-control:1980
+#: huma-control:2006
 msgid "Presets"
 msgstr "Hazır"
 
-#: huma-control:1990
+#: huma-control:2016
 msgid "Add Point"
 msgstr "Nokta ekle"
 
-#: huma-control:1990
+#: huma-control:2016
 msgid "Remove Point"
 msgstr "Nokta sil"
 
-#: huma-control:1995
+#: huma-control:2021
 msgid "Apply"
 msgstr "Uygula"
 
-#: huma-control:2014
+#: huma-control:2040
 msgid "Fan curve: Monster Control Center tables"
 msgstr "Fan eğrisi: Monster Control Center tabloları"
 
-#: huma-control:2022
+#: huma-control:2048
 msgid "Custom fan curve applied"
 msgstr "Özel fan eğrisi uygulandı"
 
-#: huma-control:2046
+#: huma-control:2072
 msgid ""
 "The Huma Control Center service records every minute (even when you're "
 "logged out); kept for 90 days."
@@ -1399,257 +1401,257 @@ msgstr ""
 "Huma Control Center servisi dakikada bir kaydeder (oturum kapalıyken de); 90 "
 "gün saklanır."
 
-#: huma-control:2047
+#: huma-control:2073
 msgid "Range"
 msgstr "Aralık"
 
-#: huma-control:2055
+#: huma-control:2081
 msgid "Average draw on battery"
 msgstr "Pilde ortalama tüketim"
 
-#: huma-control:2055
+#: huma-control:2081
 msgid "Highest CPU temperature"
 msgstr "En yüksek işlemci sıcaklığı"
 
-#: huma-control:2056
+#: huma-control:2082
 msgid "Battery capacity"
 msgstr "Pil kapasitesi"
 
-#: huma-control:2056
+#: huma-control:2082
 msgid "Performance mode breakdown"
 msgstr "Performans modu dağılımı"
 
-#: huma-control:2066
+#: huma-control:2092
 msgid "Power Draw (on Battery)"
 msgstr "Güç çekişi (pilde)"
 
-#: huma-control:2067
+#: huma-control:2093
 msgid "CPU Temperature"
 msgstr "İşlemci sıcaklığı"
 
-#: huma-control:2068
+#: huma-control:2094
 msgid "Battery Charge"
 msgstr "Pil doluluğu"
 
-#: huma-control:2069
+#: huma-control:2095
 msgid "Fan Speed"
 msgstr "Fan hızı"
 
-#: huma-control:2070
+#: huma-control:2096
 msgid "Battery Capacity (Full Charge)"
 msgstr "Pil kapasitesi (tam dolu)"
 
-#: huma-control:2076
+#: huma-control:2102
 msgid "Recent Alerts"
 msgstr "Son uyarılar"
 
-#: huma-control:2146 huma-control:2147 huma-control:2148 huma-control:2150
+#: huma-control:2172 huma-control:2173 huma-control:2174 huma-control:2176
 msgid "No records"
 msgstr "Kayıt yok"
 
-#: huma-control:2169
+#: huma-control:2195
 msgid "No alerts"
 msgstr "Uyarı yok"
 
-#: huma-control:2169
+#: huma-control:2195
 msgid "Watching for overheating, fan failure and battery health"
 msgstr "Aşırı ısınma, fan arızası ve pil sağlığı izleniyor"
 
-#: huma-control:2185
+#: huma-control:2211
 msgid "Driver"
 msgstr "Sürücü"
 
-#: huma-control:2187
+#: huma-control:2213
 msgid "Modules"
 msgstr "Modüller"
 
-#: huma-control:2188
+#: huma-control:2214
 msgid "Services"
 msgstr "Servisler"
 
-#: huma-control:2190
+#: huma-control:2216
 msgid "Power mode"
 msgstr "Güç kipi"
 
-#: huma-control:2191
+#: huma-control:2217
 msgid "Module options"
 msgstr "Modül ayarları"
 
-#: huma-control:2192
+#: huma-control:2218
 msgid "Huma Control Center settings"
 msgstr "Huma Control Center ayarları"
 
-#: huma-control:2193
+#: huma-control:2219
 msgid "Driver files"
 msgstr "Sürücü dosyaları"
 
-#: huma-control:2194
+#: huma-control:2220
 msgid "Wireless"
 msgstr "Kablosuz"
 
-#: huma-control:2195
+#: huma-control:2221
 msgid "Extensions"
 msgstr "Eklentiler"
 
-#: huma-control:2196
+#: huma-control:2222
 msgid "Driver log"
 msgstr "Sürücü günlüğü"
 
-#: huma-control:2197
+#: huma-control:2223
 msgid "Service log"
 msgstr "Servis günlüğü"
 
-#: huma-control:2201
+#: huma-control:2227
 #, python-brace-format
 msgid "Huma Control Center diagnostic report — {time}"
 msgstr "Huma Control Center tanı raporu — {time}"
 
-#: huma-control:2205
+#: huma-control:2231
 #, python-brace-format
 msgid "Diagnostic report: {path}"
 msgstr "Tanı raporu: {path}"
 
-#: huma-control:2208
+#: huma-control:2234
 #, python-brace-format
 msgid "Could not write the diagnostic report: {error}"
 msgstr "Tanı raporu yazılamadı: {error}"
 
-#: huma-control:2210
+#: huma-control:2236
 msgid "Preparing diagnostic report…"
 msgstr "Tanı raporu hazırlanıyor…"
 
-#: huma-control:2267
+#: huma-control:2293
 msgid "read error:"
 msgstr "okuma hatası:"
 
-#: huma-control:2301
+#: huma-control:2327
 msgid "Warm"
 msgstr "Ilık"
 
-#: huma-control:2301
+#: huma-control:2327
 msgid "Hot"
 msgstr "Sıcak"
 
-#: huma-control:2306 huma-control:2311
+#: huma-control:2332 huma-control:2337
 msgid "Stopped"
 msgstr "Duruyor"
 
-#: huma-control:2307
+#: huma-control:2333
 msgid "rpm"
 msgstr "dev/dk"
 
-#: huma-control:2308
+#: huma-control:2334
 #, python-brace-format
 msgid "{mode} · sensor {temperature}"
 msgstr "{mode} · sensör {temperature}"
 
-#: huma-control:2312
+#: huma-control:2338
 #, python-brace-format
 msgid "{rpm} rpm"
 msgstr "{rpm} dev/dk"
 
-#: huma-control:2317
+#: huma-control:2343
 msgid "Fan: automatic"
 msgstr "Fan: otomatik"
 
-#: huma-control:2319
+#: huma-control:2345
 msgid "Driver not loaded"
 msgstr "Sürücü yüklü değil"
 
-#: huma-control:2320
+#: huma-control:2346
 msgid "Fan: unknown"
 msgstr "Fan: bilinmiyor"
 
-#: huma-control:2326
+#: huma-control:2352
 msgid "UPower not available"
 msgstr "UPower yok"
 
-#: huma-control:2335
+#: huma-control:2361
 #, python-brace-format
 msgid "{time} left"
 msgstr "{time} kaldı"
 
-#: huma-control:2336
+#: huma-control:2362
 msgid "Discharging"
 msgstr "Pilden"
 
-#: huma-control:2338
+#: huma-control:2364
 msgid "Plugged in"
 msgstr "Prizde"
 
-#: huma-control:2339
+#: huma-control:2365
 #, python-brace-format
 msgid "Charging +{power} W"
 msgstr "Şarj +{power} W"
 
-#: huma-control:2341
+#: huma-control:2367
 msgid "Full"
 msgstr "Dolu"
 
-#: huma-control:2341
+#: huma-control:2367
 msgid "Pending charge"
 msgstr "Şarj beklemede"
 
-#: huma-control:2342
+#: huma-control:2368
 #, python-brace-format
 msgid "{time} until full"
 msgstr "Dolmasına {time}"
 
-#: huma-control:2344
+#: huma-control:2370
 msgid "Charging"
 msgstr "Şarj oluyor"
 
-#: huma-control:2367 huma-control:2387
+#: huma-control:2393 huma-control:2413
 #, python-brace-format
 msgid "CPU power limit {limit}"
 msgstr "İşlemci güç sınırı {limit}"
 
-#: huma-control:2372
+#: huma-control:2398
 msgid "The controller's setting wasn't recognized; choose a mode"
 msgstr "Kontrolcüdeki ayar tanınmadı; bir mod seç"
 
-#: huma-control:2377 huma-control:2391
+#: huma-control:2403 huma-control:2417
 msgid "Custom mode"
 msgstr "Özel mod"
 
-#: huma-control:2388
+#: huma-control:2414
 msgid "Fan Boost on"
 msgstr "Fan Boost açık"
 
-#: huma-control:2392
+#: huma-control:2418
 msgid "The controller's setting wasn't recognized; choose a mode below"
 msgstr "Kontrolcüdeki ayar tanınmadı; aşağıdan bir mod seç"
 
-#: huma-control:2435
+#: huma-control:2461
 msgid "charging"
 msgstr "şarj oluyor"
 
-#: huma-control:2435
+#: huma-control:2461
 msgid "discharging"
 msgstr "pilden"
 
-#: huma-control:2435
+#: huma-control:2461
 msgid "full"
 msgstr "dolu"
 
-#: huma-control:2436
+#: huma-control:2462
 msgid "not charging"
 msgstr "şarj edilmiyor"
 
-#: huma-control:2441
+#: huma-control:2467
 msgid "Not reported by the controller"
 msgstr "Kontrolcü bildirmiyor"
 
-#: huma-control:2463
+#: huma-control:2489
 #, python-brace-format
 msgid "Keyboard backlight: {level}"
 msgstr "Klavye ışığı: {level}"
 
-#: huma-control:2479
+#: huma-control:2505
 msgid "Measurement"
 msgstr "Ölçüm"
 
-#: huma-control:2480
+#: huma-control:2506
 msgid ""
 "This laptop has no light sensor; ambient light is measured with the camera. "
 "During a measurement the camera light turns on briefly (~1.5 s) and no image "
@@ -1667,81 +1669,81 @@ msgstr ""
 "karanlık oda ~0-20, normal oda ~50-255; daha parlakta (pencere kenarı, "
 "güneş) kamera pozlamayı kısaltır ve değer yüzlere, binlere çıkar."
 
-#: huma-control:2486
+#: huma-control:2512
 msgid "Last measurement"
 msgstr "Son ölçüm"
 
-#: huma-control:2487
+#: huma-control:2513
 msgid "Measure Now"
 msgstr "Şimdi ölç"
 
-#: huma-control:2490
+#: huma-control:2516
 msgid "Measurement interval"
 msgstr "Ölçüm aralığı"
 
-#: huma-control:2494
+#: huma-control:2520
 msgid "Measurement interval saved"
 msgstr "Ölçüm aralığı kaydedildi"
 
-#: huma-control:2503
+#: huma-control:2529
 msgid "Keyboard Backlight"
 msgstr "Klavye ışığı"
 
-#: huma-control:2504
+#: huma-control:2530
 msgid "Turn on/off automatically"
 msgstr "Ortama göre aç/kapat"
 
-#: huma-control:2505
+#: huma-control:2531
 msgid "Very dark → bright, dark → dim, bright → off"
 msgstr "Çok karanlık → parlak, karanlık → kısık, aydınlık → kapalı"
 
-#: huma-control:2508
+#: huma-control:2534
 msgid "The keyboard backlight will turn on and off with the ambient light"
 msgstr "Klavye ışığı ortama göre açılıp kapanacak"
 
-#: huma-control:2509
+#: huma-control:2535
 msgid "The keyboard backlight won't change with the ambient light"
 msgstr "Klavye ışığı ortama göre değişmeyecek"
 
-#: huma-control:2511
+#: huma-control:2537
 msgid "Dark threshold (dim)"
 msgstr "Karanlık eşiği (kısık)"
 
-#: huma-control:2512
+#: huma-control:2538
 msgid ""
 "Below it is dark (backlight dim), above 1.5 times it is bright (backlight "
 "off)"
 msgstr ""
 "Altı karanlık (ışık kısık yanar), 1,5 katının üstü aydınlık (ışık kapanır)"
 
-#: huma-control:2515
+#: huma-control:2541
 msgid "It's Dark Now"
 msgstr "Şu an karanlık"
 
-#: huma-control:2516
+#: huma-control:2542
 msgid ""
 "Set it with the room as dark as you like: makes the threshold slightly above "
 "the current measurement"
 msgstr ""
 "Odayı karanlık olduğun gibi ayarla: şu anki ölçümün biraz üstünü eşik yap"
 
-#: huma-control:2523
+#: huma-control:2549
 msgid "Very dark threshold"
 msgstr "Çok karanlık eşiği"
 
-#: huma-control:2524
+#: huma-control:2550
 msgid "Below this measurement the keyboard backlight is bright"
 msgstr "Ölçüm bunun altındaysa klavye ışığı parlak yanar"
 
-#: huma-control:2526
+#: huma-control:2552
 msgid "It's Very Dark Now"
 msgstr "Şu an çok karanlık"
 
-#: huma-control:2538
+#: huma-control:2564
 msgid "Screen Brightness"
 msgstr "Ekran parlaklığı"
 
-#: huma-control:2539
+#: huma-control:2565
 msgid ""
 "The current brightness counts as your preference for the current light: the "
 "screen dims as the room gets darker and brightens as it gets lighter. Moving "
@@ -1754,54 +1756,54 @@ msgstr ""
 "referans olur. Hızlı Ayarlar'da parlaklık kaydırıcısının yanındaki oktan da "
 "açılıp kapatılabilir."
 
-#: huma-control:2543
+#: huma-control:2570
 msgid "Adjust to ambient light"
 msgstr "Ortama göre ayarla"
 
-#: huma-control:2544
+#: huma-control:2571
 msgid "The brightness slider stays as fine-tuning"
 msgstr "Parlaklık kaydırıcısı ince ayar olarak kalır"
 
-#: huma-control:2547
+#: huma-control:2574
 msgid "Automatic screen brightness turned on"
 msgstr "Otomatik ekran parlaklığı açıldı"
 
-#: huma-control:2548
+#: huma-control:2575
 msgid "Automatic screen brightness turned off"
 msgstr "Otomatik ekran parlaklığı kapatıldı"
 
-#: huma-control:2549
+#: huma-control:2576
 msgid "Sensitivity"
 msgstr "Duyarlılık"
 
-#: huma-control:2550
+#: huma-control:2577
 msgid "How much ambient light changes affect the screen"
 msgstr "Ortam değişiminin ekrana ne kadar yansıyacağı"
 
-#: huma-control:2551
+#: huma-control:2578
 msgctxt "sensitivity"
 msgid "Low"
 msgstr "Az"
 
-#: huma-control:2552
+#: huma-control:2579
 msgctxt "sensitivity"
 msgid "Medium"
 msgstr "Orta"
 
-#: huma-control:2553
+#: huma-control:2580
 msgctxt "sensitivity"
 msgid "High"
 msgstr "Çok"
 
-#: huma-control:2555
+#: huma-control:2582
 msgid "Sensitivity saved"
 msgstr "Duyarlılık kaydedildi"
 
-#: huma-control:2557
+#: huma-control:2584
 msgid "Full brightness in sunlight"
 msgstr "Güneşte tam parlaklık"
 
-#: huma-control:2558
+#: huma-control:2585
 msgid ""
 "In sunlight or very bright surroundings the screen goes to 100%, wherever "
 "the slider is"
@@ -1809,19 +1811,19 @@ msgstr ""
 "Güneş ışığı ya da çok parlak ortamda ekran %100 olur, kaydırıcı nerede "
 "olursa olsun"
 
-#: huma-control:2562
+#: huma-control:2589
 msgid "Full brightness in sunlight turned on"
 msgstr "Güneşte tam parlaklık açıldı"
 
-#: huma-control:2563
+#: huma-control:2590
 msgid "Full brightness in sunlight turned off"
 msgstr "Güneşte tam parlaklık kapatıldı"
 
-#: huma-control:2565
+#: huma-control:2592
 msgid "Sunlight threshold"
 msgstr "Güneş eşiği"
 
-#: huma-control:2566
+#: huma-control:2593
 msgid ""
 "The scale has no upper limit: dark room ~0-20, normal room ~50-255, by a "
 "window hundreds, sunlight thousands. Between 255 and this threshold the "
@@ -1830,46 +1832,46 @@ msgstr ""
 "Ölçek üst sınırsız: karanlık oda ~0-20, normal oda ~50-255, pencere kenarı "
 "yüzlerce, güneş binlerce. 255 ile bu eşik arasında ekran kademe kademe açılır"
 
-#: huma-control:2570
+#: huma-control:2597
 msgid "It's Sunny Now"
 msgstr "Şu an güneşli"
 
-#: huma-control:2571
+#: huma-control:2598
 msgid ""
 "Press while in sunlight: the threshold becomes slightly below the current "
 "measurement"
 msgstr "Güneşteyken bas: şu anki ölçümün biraz altı eşik olur"
 
-#: huma-control:2577
+#: huma-control:2604
 msgid "Method"
 msgstr "Yöntem"
 
-#: huma-control:2577
+#: huma-control:2604
 msgid "Levels"
 msgstr "Kademeler"
 
-#: huma-control:2577
+#: huma-control:2604
 msgid "Relative"
 msgstr "Göreli"
 
-#: huma-control:2578
+#: huma-control:2605
 msgid ""
 "Levels: a set percentage for each light level · Relative: based on the slider"
 msgstr "Kademeler: her ortam için ayarlanan yüzde · Göreli: kaydırıcıya göre"
 
-#: huma-control:2582
+#: huma-control:2609
 msgid "Method saved"
 msgstr "Yöntem kaydedildi"
 
-#: huma-control:2589
-msgid "Last decision"
-msgstr "Son karar"
+#: huma-control:2626
+msgid "Back to Automatic"
+msgstr "Otomatiğe Dön"
 
-#: huma-control:2596
+#: huma-control:2638
 msgid "Screen Percentages (%)"
 msgstr "Ekran yüzdeleri (%)"
 
-#: huma-control:2597
+#: huma-control:2639
 msgid ""
 "The screen percentage for each light level. If the measurement is between "
 "two levels, the screen moves step by step to a value in between. If you "
@@ -1881,15 +1883,15 @@ msgstr ""
 "kademeye geçene kadar dokunulmaz; kalıcı olsun istersen aşağıdaki Kaydet'e "
 "bas."
 
-#: huma-control:2615
+#: huma-control:2657
 msgid "Save the current brightness for this light"
 msgstr "Şu anki parlaklığı bu ortam için kaydet"
 
-#: huma-control:2625
+#: huma-control:2667
 msgid "When Nobody Is There"
 msgstr "Kimse yoksa"
 
-#: huma-control:2626
+#: huma-control:2668
 msgid ""
 "When the keyboard and touchpad aren't touched, the camera takes one look: if "
 "nobody is there, the screen locks and turns off (it looks again after 10 s "
@@ -1906,63 +1908,63 @@ msgstr ""
 "yalnız boştayken, her bakışta ~1 sn yanar. Görüntü kaydedilmez; kamera "
 "toplantıda açıksa biri var sayılır."
 
-#: huma-control:2633
+#: huma-control:2675
 msgid "Lock and turn off the screen when nobody is there"
 msgstr "Kimse yoksa ekranı kilitle ve kapat"
 
-#: huma-control:2634
+#: huma-control:2676
 msgid "Face detection"
 msgstr "Yüz algılama"
 
-#: huma-control:2634
+#: huma-control:2676
 msgid "Not installed: ./install.sh"
 msgstr "Kurulu değil: ./install.sh"
 
-#: huma-control:2637
+#: huma-control:2679
 msgid "Presence check turned on"
 msgstr "Yoklama açıldı"
 
-#: huma-control:2637
+#: huma-control:2679
 msgid "Presence check turned off"
 msgstr "Yoklama kapatıldı"
 
-#: huma-control:2638
+#: huma-control:2680
 msgid "Look Now"
 msgstr "Şimdi bak"
 
-#: huma-control:2642
+#: huma-control:2684
 msgid "When to look"
 msgstr "Ne zaman bakılsın"
 
-#: huma-control:2642
+#: huma-control:2684
 msgid "After this long without input"
 msgstr "Bu kadar süre dokunulmazsa"
 
-#: huma-control:2647 huma-control:2654 huma-control:2733
+#: huma-control:2689 huma-control:2696 huma-control:2775
 msgid "Saved"
 msgstr "Kaydedildi"
 
-#: huma-control:2650
+#: huma-control:2692
 msgid "Camera"
 msgstr "Kamera"
 
-#: huma-control:2650
+#: huma-control:2692
 msgid "The IR camera also sees in the dark"
 msgstr "IR kamera karanlıkta da görür"
 
-#: huma-control:2651
+#: huma-control:2693
 msgid "IR camera"
 msgstr "IR kamera"
 
-#: huma-control:2651
+#: huma-control:2693
 msgid "Normal camera"
 msgstr "Normal kamera"
 
-#: huma-control:2665
+#: huma-control:2707
 msgid "Show changes on screen"
 msgstr "Değişiklikleri ekranda göster"
 
-#: huma-control:2666
+#: huma-control:2708
 msgid ""
 "When the screen or keyboard backlight changes by itself, an indicator "
 "appears like with the brightness keys"
@@ -1970,23 +1972,23 @@ msgstr ""
 "Ekran ya da klavye ışığı kendiliğinden değişince parlaklık tuşlarındaki gibi "
 "gösterge çıkar"
 
-#: huma-control:2670
+#: huma-control:2712
 msgid "Indicator turned on"
 msgstr "Gösterge açıldı"
 
-#: huma-control:2670
+#: huma-control:2712
 msgid "Indicator turned off"
 msgstr "Gösterge kapatıldı"
 
-#: huma-control:2791
+#: huma-control:2833
 msgid "what you choose is kept when plugged in"
 msgstr "prizdeyken seçtiğin korunur"
 
-#: huma-control:2791
+#: huma-control:2833
 msgid "also when plugged in"
 msgstr "prizde de"
 
-#: huma-control:2793
+#: huma-control:2835
 #, python-brace-format
 msgid ""
 "You can also change it with Fn+F6; automatic on/off is on: it is corrected "
@@ -1995,11 +1997,11 @@ msgstr ""
 "Fn+F6 ile de değiştirebilirsin; ortama göre aç/kapat açık: birkaç saniye "
 "sonra ortama göre düzeltilir ({when})."
 
-#: huma-control:2795
+#: huma-control:2837
 msgid "You can also change it with Fn+F6."
 msgstr "Fn+F6 ile de değiştirebilirsin."
 
-#: huma-control:2797
+#: huma-control:2839
 msgid ""
 "The goal is saving power: even if you change it with Fn+F6, it is corrected "
 "to the ambient light after a few seconds (on battery only; can be changed on "
@@ -2008,7 +2010,7 @@ msgstr ""
 "Amaç tasarruf: Fn+F6 ile değiştirsen de birkaç saniye sonra ortama göre "
 "düzeltilir (yalnız pildeyken; Tasarruf sayfasından değiştirilebilir)."
 
-#: huma-control:2799
+#: huma-control:2841
 msgid ""
 "The goal is saving power: even if you change it with Fn+F6, it is corrected "
 "to the ambient light after a few seconds."
@@ -2016,7 +2018,7 @@ msgstr ""
 "Amaç tasarruf: Fn+F6 ile değiştirsen de birkaç saniye sonra ortama göre "
 "düzeltilir."
 
-#: huma-control:2802
+#: huma-control:2844
 msgid ""
 "The backlight turns off if the keyboard and touchpad aren't touched for this "
 "long (also when plugged in) and turns back on when touched"
@@ -2024,7 +2026,7 @@ msgstr ""
 "Klavyeye ve dokunmatik yüzeye bu süre dokunulmazsa ışık kapanır (prizde de), "
 "dokununca geri açılır"
 
-#: huma-control:2810
+#: huma-control:2852
 msgid ""
 "Between sunrise and sunset the backlight starts off at boot, at login and "
 "when waking from sleep (based on location; left alone when plugged in)."
@@ -2032,7 +2034,7 @@ msgstr ""
 "Gün doğumu ile batımı arasında açılışta, oturum açılınca ve uykudan uyanınca "
 "ışık kapalı başlar (konuma göre; prizdeyken dokunulmaz)."
 
-#: huma-control:2812
+#: huma-control:2854
 msgid ""
 "Between sunrise and sunset the backlight starts off at boot, at login and "
 "when waking from sleep (based on location)."
@@ -2040,7 +2042,7 @@ msgstr ""
 "Gün doğumu ile batımı arasında açılışta, oturum açılınca ve uykudan uyanınca "
 "ışık kapalı başlar (konuma göre)."
 
-#: huma-control:2814
+#: huma-control:2856
 msgid ""
 "It stays on if the room is dark; even if you turn it on with Fn+F6, it turns "
 "off again after a few seconds if the room is bright"
@@ -2048,126 +2050,126 @@ msgstr ""
 "Oda karanlıksa açık kalır; Fn+F6 ile açsan da oda aydınlıksa birkaç saniye "
 "sonra yeniden kapanır"
 
-#: huma-control:2815
+#: huma-control:2857
 msgid "It can be turned on with Fn+F6"
 msgstr "Fn+F6 ile açılabilir"
 
-#: huma-control:2816
+#: huma-control:2858
 #, python-brace-format
 msgid "Daytime here today: {sunrise}–{sunset}"
 msgstr "Bugün burada gündüz: {sunrise}–{sunset}"
 
-#: huma-control:2817
+#: huma-control:2859
 msgid "Location unknown: turn on Settings → Privacy → Location Services"
 msgstr "Konum bilinmiyor: Ayarlar → Gizlilik → Konum servislerini aç"
 
-#: huma-control:2836
+#: huma-control:2878
 msgid "Could not measure"
 msgstr "Ölçülemedi"
 
-#: huma-control:2845
+#: huma-control:2891
 #, python-brace-format
 msgid "Measurement {value}: too low for sunlight (normal room ~50-255)"
 msgstr "Ölçüm {value}: güneş için fazla düşük (normal oda ~50-255)"
 
-#: huma-control:2849
+#: huma-control:2895
 #, python-brace-format
 msgid ""
 "Sunlight threshold {value}: in light this bright the screen is at full "
 "brightness"
 msgstr "Güneş eşiği {value}: bu kadar parlak ortamda ekran tam parlak olur"
 
-#: huma-control:2853
+#: huma-control:2899
 #, python-brace-format
 msgid ""
 "Very dark threshold {value}: this dark, the keyboard backlight is bright"
 msgstr "Çok karanlık eşiği {value}: bu kadar karanlıkta klavye parlak yanar"
 
-#: huma-control:2857
+#: huma-control:2903
 #, python-brace-format
 msgid "Threshold {value}: a room this dark or darker counts as dark"
 msgstr "Eşik {value}: bu kadar ve daha karanlık oda karanlık sayılır"
 
-#: huma-control:2867
+#: huma-control:2913
 msgid "Turning off when idle disabled"
 msgstr "Boştayken kapanma kapatıldı"
 
-#: huma-control:2868
+#: huma-control:2914
 #, python-brace-format
 msgid "The keyboard backlight will turn off after {time}"
 msgstr "Klavye ışığı {time} sonra kapanacak"
 
-#: huma-control:2873
+#: huma-control:2919
 msgid "Starting off during daytime turned on"
 msgstr "Gündüz açılışta kapalı açıldı"
 
-#: huma-control:2874
+#: huma-control:2920
 msgid "Starting off during daytime turned off"
 msgstr "Gündüz açılışta kapalı kapatıldı"
 
-#: huma-control:2882
+#: huma-control:2928
 msgid "Location updated"
 msgstr "Konum güncellendi"
 
-#: huma-control:2901 huma-control:2920
+#: huma-control:2947 huma-control:2966
 msgid "Fan Boost turned on"
 msgstr "Fan Boost açıldı"
 
-#: huma-control:2901 huma-control:2920
+#: huma-control:2947 huma-control:2966
 msgid "Fan in automatic mode"
 msgstr "Fan otomatik modda"
 
-#: huma-control:2926
+#: huma-control:2972
 msgid "Touchpad shortcut turned on"
 msgstr "Dokunmatik yüzey kısayolu açıldı"
 
-#: huma-control:2926
+#: huma-control:2972
 msgid "Touchpad shortcut turned off"
 msgstr "Dokunmatik yüzey kısayolu kapatıldı"
 
-#: huma-control:2948
+#: huma-control:2994
 msgid "Power on when plugged in turned on; takes effect after a restart"
 msgstr "Priz takılınca açılma açıldı; yeniden başlatınca etkinleşir"
 
-#: huma-control:2949
+#: huma-control:2995
 msgid "Power on when plugged in turned off; takes effect after a restart"
 msgstr "Priz takılınca açılma kapatıldı; yeniden başlatınca etkinleşir"
 
-#: huma-control:2958
+#: huma-control:3004
 msgid "USB power while off turned on"
 msgstr "Kapalıyken USB güç açıldı"
 
-#: huma-control:2958
+#: huma-control:3004
 msgid "USB power while off turned off"
 msgstr "Kapalıyken USB güç kapatıldı"
 
-#: huma-control:2964
+#: huma-control:3010
 msgid "Windows key locked"
 msgstr "Windows tuşu kilitlendi"
 
-#: huma-control:2964
+#: huma-control:3010
 msgid "Windows key unlocked"
 msgstr "Windows tuşu kilidi açıldı"
 
-#: huma-control:2970
+#: huma-control:3016
 msgid "Fn lock turned on"
 msgstr "Fn kilidi açıldı"
 
-#: huma-control:2970
+#: huma-control:3016
 msgid "Fn lock turned off"
 msgstr "Fn kilidi kapatıldı"
 
-#: huma-control:2987
+#: huma-control:3033
 #, python-brace-format
 msgid "Power mode: {mode}"
 msgstr "Güç kipi: {mode}"
 
-#: huma-control:3000
+#: huma-control:3046
 #, python-brace-format
 msgid "SD card reader: {mode}"
 msgstr "SD kart okuyucu: {mode}"
 
-#: huma-control:3004
+#: huma-control:3050
 msgid "Setting applied"
 msgstr "Ayar uygulandı"
 
