@@ -9,6 +9,12 @@ All notable changes are listed here. The format follows
 First public release. Supported hardware: Uniwill PH4TUX1 (Monster Huma H4
 V4.1; same chassis as TUXEDO InfinityBook Pro 14 Gen6), EC project id `0x13`.
 
+### Fixed
+
+- At boot tuned could apply its profile before the driver was loaded, leaving the laptop in
+  Balanced Medium (32 W) on battery with Power Saver selected; the service now asks tuned to
+  re-apply its profile when the driver appears.
+
 ### Kernel driver (`qc71_laptop` fork, driver version 0.10)
 
 - Based on Slimbook-Team/qc71_laptop PR #5 (white keyboard backlight); no EC

@@ -43,6 +43,7 @@ import re
 import select
 import signal
 import socket
+import subprocess
 import sys
 import time
 from datetime import datetime, timedelta
@@ -253,6 +254,24 @@ class Profile:
 NETLINK_KOBJECT_UEVENT = 15   # linux/netlink.h (missing from Python's socket module)
 
 
+# At boot tuned often applies its profile before the driver is loaded: platform_profile does not
+# exist yet, so the power mode stays at the controller's default (Balanced Medium, 32 W) even on
+# battery with Power Saver selected. When the driver appears, ask tuned to apply its current
+# profile again (D-Bus 'reload' keeps the selected profile and the automatic mode).
+PLATFORM_PROFILE = Path('/sys/firmware/acpi/platform_profile')
+TUNED_RELOAD_TRIES = 12   # tuned may still be starting: retry every 5 s for a minute
+
+
+def tuned_reload():
+    try:
+        out = subprocess.run(['busctl', 'call', '--timeout=10', 'com.redhat.tuned', '/Tuned',
+                              'com.redhat.tuned.control', 'reload'],
+                             capture_output=True, text=True, timeout=15)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return out.returncode == 0 and out.stdout.strip() == 'b true'
+
+
 class Uevents:
     """Kernel uevents (NETLINK_KOBJECT_UEVENT): AC plug/unplug (power_supply) and the driver's
     profile announcement (/devices/platform/qc71_laptop, HUMA_CONTROL=performance) arrive
@@ -292,6 +311,8 @@ class Uevents:
                 # driver loaded or profile changed (fan_boost is not a profile)
                 if env.get(b'HUMA_CONTROL') == b'performance' or env.get(b'ACTION') in (b'add', b'bind'):
                     out['profile'] = True
+                if env.get(b'ACTION') in (b'add', b'bind'):
+                    out['driver'] = True
         return out
 
 
@@ -805,6 +826,8 @@ def main():
     last_flush = time.monotonic()
     mains_dirty = False   # with the uevent socket: AC must be read again
     hot = False
+    # driver already there at start: let tuned re-apply once (see tuned_reload)
+    reload_at, reload_tries = (time.monotonic() + 3, 0) if PLATFORM_PROFILE.exists() else (0, 0)
     log('started')
     try:
         while True:
@@ -852,6 +875,14 @@ def main():
                     last_flush = now
                     flush_history()
                     usage.flush()
+                if reload_at and now >= reload_at:
+                    if PLATFORM_PROFILE.exists() and tuned_reload():
+                        log('tuned profile re-applied for the driver')
+                        reload_at = 0
+                        profile.dirty = True
+                    else:
+                        reload_tries += 1
+                        reload_at = now + 5 if reload_tries < TUNED_RELOAD_TRIES else 0
             except Exception as e:  # keep the service alive
                 log(f'error: {e!r}')
 
@@ -859,6 +890,8 @@ def main():
             deadline = min(time.monotonic() + (TICK_HOT if hot else TICK), last_history + HISTORY_EVERY)
             if auto.reapply_at:
                 deadline = min(deadline, auto.reapply_at)
+            if reload_at:
+                deadline = min(deadline, reload_at)
             deadline = max(deadline, time.monotonic() + 1)   # do not spin even if the round fails
             if uevents is None:
                 time.sleep(max(0, deadline - time.monotonic()))
@@ -868,6 +901,9 @@ def main():
                     ev = uevents.wait(left)
                     if ev.get('profile'):
                         profile.dirty = True
+                    if ev.get('driver'):   # driver (re)loaded: tuned re-applies its profile shortly
+                        reload_at, reload_tries = time.monotonic() + 2, 0
+                        break
                     if ev.get('lost'):
                         profile.dirty = mains_dirty = True
                     if 'mains' in ev:
