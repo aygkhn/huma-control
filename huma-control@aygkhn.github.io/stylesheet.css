@@ -39,3 +39,10 @@
 .hc-seg-icon { icon-size: 14px; }
 
 /* switches in the brightness menu */
+
+/* screen percentage next to the brightness slider */
+.huma-brightness-percent {
+    min-width: 3.2em;
+    text-align: right;
+    font-feature-settings: "tnum";
+}

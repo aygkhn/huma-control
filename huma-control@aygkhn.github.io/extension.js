@@ -826,6 +826,21 @@ class BrightnessMenu {
         this._section.addAction(_('Ambient light settings'), () => openControlCenter('ambient'));
         this._item.menu.addMenuItem(this._separator);
         this._item.menu.addMenuItem(this._section);
+        // current screen percentage next to the slider (with automatic brightness the slider
+        // alone does not show it); updated only while Quick Settings is open
+        this._percent = new St.Label({y_align: Clutter.ActorAlign.CENTER, style_class: 'huma-brightness-percent'});
+        this._item.get_first_child()?.insert_child_at_index(this._percent, 2);
+        Main.panel.statusArea.quickSettings.menu.connectObject('open-state-changed', (_m, open) => {
+            this._stopPercent();
+            if (open) {
+                this._showPercent();
+                this._percentTimer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 500, () => {
+                    this._showPercent();
+                    return GLib.SOURCE_CONTINUE;
+                });
+            }
+        }, this);
+        this._showPercent();
         this._item.menu.connectObject('open-state-changed', (_m, open) => open && this.refresh(), this);
         // GNOME disables the menu in its own _sync on a single monitor; re-enable it afterwards
         Main.brightnessManager?.connectObject('changed', () => this._keepMenu(), this);
@@ -936,9 +951,30 @@ class BrightnessMenu {
         }
     }
 
+    // screen = automatic target + slider - 0.5 (GNOME), just the slider when automatic is off
+    _showPercent() {
+        const manager = Main.brightnessManager;
+        const slider = manager?.globalScale?.value;
+        if (!this._percent || typeof slider !== 'number')
+            return;
+        const target = manager.autoBrightnessTarget ?? -1;
+        const screen = Math.min(1, Math.max(0, target >= 0 ? target + slider - 0.5 : slider));
+        this._percent.text = fill(_('{value}%'), {value: Math.round(screen * 100)});
+    }
+
+    _stopPercent() {
+        if (this._percentTimer)
+            GLib.source_remove(this._percentTimer);
+        this._percentTimer = 0;
+    }
+
     destroy() {
         if (!this._item)
             return;
+        this._stopPercent();
+        Main.panel.statusArea.quickSettings.menu.disconnectObject(this);
+        this._percent?.destroy();
+        this._percent = null;
         Main.brightnessManager?.disconnectObject(this);
         this._item.menu.disconnectObject(this);
         this._section.destroy();
