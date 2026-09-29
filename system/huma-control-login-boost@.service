@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# SPDX-FileCopyrightText: 2026 Gokhan AY <aygkhn@gmail.com>
+[Unit]
+Description=Huma Control Center: faster login on battery (UID %i)
+After=tuned.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/libexec/huma-control-login-boost %i
+TimeoutStopSec=30

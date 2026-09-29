@@ -9,6 +9,11 @@ All notable changes are listed here. The format follows
 First public release. Supported hardware: Uniwill PH4TUX1 (Monster Huma H4
 V4.1; same chassis as TUXEDO InfinityBook Pro 14 Gen6), EC project id `0x13`.
 
+### Added
+
+- Faster login on battery: while turbo is off, it is allowed for 20 s when a user logs in
+  (GNOME Shell starts in 2.2 s instead of 3.9 s), then tuned re-applies its profile.
+
 ### Fixed
 
 - At boot tuned could apply its profile before the driver was loaded, leaving the laptop in

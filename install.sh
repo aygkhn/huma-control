@@ -69,6 +69,8 @@ if [ "${1:-}" = --uninstall ]; then
         /etc/systemd/system/huma-control-keyboard.service "$LIBEXEC/huma-control-keyboard" \
         /etc/systemd/system/huma-control-service.service "$LIBEXEC/huma-control-service" \
         "$LIBEXEC/huma-control-light" "$LIBEXEC/huma-control-presence" \
+        "$LIBEXEC/huma-control-login-boost" /etc/systemd/system/huma-control-login-boost@.service \
+        /etc/systemd/system/user@.service.d/huma-control-login-boost.conf \
         /etc/modprobe.d/qc71_laptop-fan-curve.conf /run/huma-control-keyboard.daytime
     # UEFI backups (UniWillVariable.*) are kept on purpose
     sudo rm -rf /var/lib/huma-control/history.csv /var/lib/huma-control/history.tmp \
@@ -207,6 +209,11 @@ fi
 echo "==> Huma Control Center service (automatic profiles, history, alerts)"
 sudo install -D -m 755 "$DIR/system/huma-control-service" "$LIBEXEC/huma-control-service"
 sudo install -m 644 "$DIR/system/huma-control-service.service" /etc/systemd/system/
+# faster login on battery (turbo for 20 s while GNOME starts)
+sudo install -D -m 755 "$DIR/system/huma-control-login-boost" "$LIBEXEC/huma-control-login-boost"
+sudo install -m 644 "$DIR/system/huma-control-login-boost@.service" /etc/systemd/system/
+sudo install -D -m 644 "$DIR/system/user@.service.d/huma-control-login-boost.conf" \
+    /etc/systemd/system/user@.service.d/huma-control-login-boost.conf
 sudo systemctl daemon-reload
 sudo udevadm control --reload
 sudo systemctl enable huma-control-keyboard.service huma-control-service.service
