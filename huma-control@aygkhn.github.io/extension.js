@@ -951,14 +951,31 @@ class BrightnessMenu {
         }
     }
 
-    // screen = automatic target + slider - 0.5 (GNOME), just the slider when automatic is off
+    // actual panel brightness (same reading as the app); without a backlight GNOME's value:
+    // automatic target + slider - 0.5, just the slider when automatic is off
     _showPercent() {
-        const manager = Main.brightnessManager;
-        const slider = manager?.globalScale?.value;
-        if (!this._percent || typeof slider !== 'number')
+        if (!this._percent)
             return;
-        const target = manager.autoBrightnessTarget ?? -1;
-        const screen = Math.min(1, Math.max(0, target >= 0 ? target + slider - 0.5 : slider));
+        let screen = null;
+        try {
+            this._backlight ??= Gio.File.new_for_path('/sys/class/backlight').enumerate_children(
+                'standard::name', Gio.FileQueryInfoFlags.NONE, null).next_file(null)?.get_name() ?? '';
+            if (this._backlight) {
+                const read = f => Number(new TextDecoder().decode(
+                    GLib.file_get_contents(`/sys/class/backlight/${this._backlight}/${f}`)[1]));
+                screen = read('brightness') / read('max_brightness');
+            }
+        } catch {
+            screen = null;
+        }
+        if (!Number.isFinite(screen)) {
+            const manager = Main.brightnessManager;
+            const slider = manager?.globalScale?.value;
+            if (typeof slider !== 'number')
+                return;
+            const target = manager.autoBrightnessTarget ?? -1;
+            screen = Math.min(1, Math.max(0, target >= 0 ? target + slider - 0.5 : slider));
+        }
         this._percent.text = fill(_('{value}%'), {value: Math.round(screen * 100)});
     }
 
