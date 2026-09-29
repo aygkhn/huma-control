@@ -87,7 +87,7 @@ PH4TUX1 rebrands) are **not enabled**; if you own one, please run
 More screenshots: [overview](docs/screenshots/overview.png) ·
 [performance](docs/screenshots/performance.png) · [fan curve](docs/screenshots/fan.png) ·
 [keyboard](docs/screenshots/keyboard.png) · [ambient light](docs/screenshots/ambient-light.png) ·
-[power saving](docs/screenshots/power-saving.png) · [automation](docs/screenshots/automation.png) ·
+[battery](docs/screenshots/battery.png) (sample data) · [power saving](docs/screenshots/power-saving.png) · [automation](docs/screenshots/automation.png) ·
 [history](docs/screenshots/history.png)
 
 The app is in English and Turkish (follows the system language; can be changed in
