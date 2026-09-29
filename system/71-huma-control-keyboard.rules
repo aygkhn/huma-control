@@ -1,0 +1,8 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# SPDX-FileCopyrightText: 2026 Gokhan AY <aygkhn@gmail.com>
+# Huma Control Center: start the keyboard service when the keyboard light (qc71_laptop) appears.
+# The driver may load late at boot, or the light briefly disappears when it is reloaded; the
+# service exits cleanly while there is no light (so it does not hit the restart limit) and is
+# started from here once the light is added. If the service is already running nothing happens
+# (it finds the light again via uevent).
+ACTION!="remove", SUBSYSTEM=="leds", KERNEL=="white:kbd_backlight", TAG+="systemd", ENV{SYSTEMD_WANTS}+="huma-control-keyboard.service"

@@ -1,0 +1,131 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: GPL-2.0-or-later
+# SPDX-FileCopyrightText: 2026 Gokhan AY <aygkhn@gmail.com>
+"""Measure ambient light with the camera (this laptop has no light sensor).
+
+With auto exposure the camera brightens the image even in the dark, so exposure is
+briefly fixed at 100 ms, a few frames are captured and the mean brightness of the
+last frame is printed: 0-255 indoors. If the image saturates (by a window, sunlight)
+exposure is shortened to 10 ms, then 1 ms if needed, measured again and the value
+scaled to the same range (up to ~25500; the camera is linear between 100 ms and 10 ms).
+No image is stored. Exposure goes back to automatic right away.
+Does not measure if the camera is open in another application (video call).
+
+  huma-control-light     prints the brightness; exit 0 ok, 2 camera in use, 1 error
+"""
+import fcntl
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+EXPOSURES = (1000, 100, 10)   # 100 ms, 10 ms, 1 ms (unit: 100 µs)
+SATURATED = 200               # above this is near saturation: measure with a shorter exposure
+FRAMES = 8        # the first 3-5 frames use the old settings; the last is used (shorter camera light)
+SIZE = (32, 24)
+
+
+def camera():
+    """Video device of the normal (non-IR) camera."""
+    for dev in sorted(Path('/sys/class/video4linux').glob('video*')):
+        try:   # the camera may be unplugged / turned off right then
+            name = (dev / 'name').read_text().strip()
+            index = (dev / 'index').read_text().strip()
+        except OSError:
+            continue
+        if 'IR' not in name.split(':')[-1] and index == '0':
+            return f'/dev/{dev.name}'
+    return None
+
+
+def is_tool(pid):
+    args = Path(f'/proc/{pid}/cmdline').read_bytes().split(b'\0')[:2]
+    return any(os.path.basename(a) in (b'huma-control-light', b'huma-control-presence') for a in args)
+
+
+def ours(pid):
+    """This tool, the face tool, or an ffmpeg started by them (queued measurements)."""
+    try:
+        if is_tool(pid):
+            return True
+        ppid = Path(f'/proc/{pid}/stat').read_text().rsplit(')', 1)[1].split()[1]
+        return is_tool(ppid)
+    except (OSError, IndexError):
+        return False
+
+
+def in_use(device):
+    """Does another process hold the device open? /proc/*/fd links are read with readlink (one
+    syscall; realpath resolves every component separately, stat can hang on a FUSE file); only
+    links containing "video" (a path in another namespace) are compared by device number.
+    Our own processes are only checked once a match is found (cmdline is not read for every process)."""
+    target = os.path.realpath(device)
+    rdev = os.stat(target).st_rdev
+    for pid in filter(str.isdigit, os.listdir('/proc')):
+        try:
+            fds = os.listdir(f'/proc/{pid}/fd')
+        except OSError:
+            continue
+        for fd in fds:
+            try:
+                link = os.readlink(f'/proc/{pid}/fd/{fd}')
+                if link != target and ('video' not in link or os.stat(f'/proc/{pid}/fd/{fd}').st_rdev != rdev):
+                    continue
+            except OSError:
+                continue
+            if not ours(pid):
+                return True
+            break   # our process: no need to check its other descriptors
+    return False
+
+
+def ctl(device, *controls):
+    subprocess.run(['v4l2-ctl', '-d', device] + [a for c in controls for a in ('-c', c)],
+                   capture_output=True, timeout=5)
+
+
+def measure(device):
+    try:
+        for exposure in EXPOSURES:
+            value = frame_mean(device, exposure)
+            if value < SATURATED:
+                break
+        return value * EXPOSURES[0] / exposure
+    finally:
+        ctl(device, 'auto_exposure=3')
+
+
+def frame_mean(device, exposure):
+    ctl(device, 'auto_exposure=1', f'exposure_time_absolute={exposure}', 'gain=4')
+    raw = subprocess.run(
+        ['ffmpeg', '-loglevel', 'error', '-f', 'v4l2', '-input_format', 'yuyv422', '-video_size', '320x240',
+         '-i', device, '-frames:v', str(FRAMES), '-vf', f'format=gray,scale={SIZE[0]}:{SIZE[1]}',
+         '-f', 'rawvideo', '-'], capture_output=True, timeout=10).stdout
+    n = SIZE[0] * SIZE[1]
+    if len(raw) < n:
+        raise RuntimeError('could not get an image from the camera')
+    last = raw[-n:]
+    return sum(last) / n
+
+
+def main():
+    device = camera()
+    if not device:
+        print('camera not found', file=sys.stderr)
+        sys.exit(1)
+    # two simultaneous measurements (service and "Measure Now") must not interfere: lock
+    # the device itself; root and the user can both open it, so no shared lock file is needed
+    lock = os.open(device, os.O_RDONLY | os.O_NONBLOCK)
+    fcntl.flock(lock, fcntl.LOCK_EX)
+    if in_use(device):
+        print('camera is open in another application', file=sys.stderr)
+        sys.exit(2)
+    try:
+        print(f'{measure(device):.1f}')
+    except (OSError, RuntimeError, subprocess.SubprocessError) as e:
+        print(f'measurement failed: {e}', file=sys.stderr)
+        sys.exit(1)
+
+
+if __name__ == '__main__':
+    main()

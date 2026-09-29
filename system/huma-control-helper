@@ -1,0 +1,168 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-2.0-or-later
+# SPDX-FileCopyrightText: 2026 Gokhan AY <aygkhn@gmail.com>
+# Huma Control Center settings that need root (through the qc71_laptop driver).
+# Runs as root via pkexec (50-huma-control.rules allows it without a password).
+# Usage:    huma-control-helper fan <auto|max>
+#           huma-control-helper super-key-lock <on|off>
+#           huma-control-helper fn-lock <on|off>
+#           huma-control-helper charging-profile <high_capacity|balanced|stationary>
+#           huma-control-helper charging-priority <charge_battery|performance>
+#           huma-control-helper performance <balanced-low|balanced-medium|balanced-high|quiet-20db|quiet-30db|quiet-40db>
+#           huma-control-helper usb-power <on|off>
+#           huma-control-helper touchpad-toggle <on|off>
+#           huma-control-helper keyboard <seconds> <off-in-daytime 0|1> [latitude longitude]
+#           huma-control-helper keyboard-set     (keyboard/ambient light settings JSON on stdin)
+#           huma-control-helper automation       (automatic profile settings JSON on stdin)
+#           huma-control-helper fan-curve <auto|48 comma-separated numbers>
+set -euo pipefail
+
+DEV=/sys/devices/platform/qc71_laptop
+
+usage() {
+    echo "Usage: huma-control-helper <fan auto|max | super-key-lock on|off | fn-lock on|off | charging-profile high_capacity|balanced|stationary | charging-priority charge_battery|performance | performance <profile> | usb-power on|off | touchpad-toggle on|off | keyboard <seconds> <0|1> [lat lon] | keyboard-set (stdin) | automation (stdin) | fan-curve auto|48 numbers>" >&2
+    exit 2
+}
+
+verb=${1:-}
+
+fail() { echo "$1" >&2; exit 1; }
+
+# Two commands must not write to the controller or the settings files at the same time
+exec 9>/run/huma-control-helper.lock
+flock -w 10 9 || fail "Another setting is being applied, try again later"
+
+# Settings JSON is validated and written atomically under /etc/huma-control (temporary
+# file in the same directory with a unique name; removed if validation fails)
+save_json() {  # target validator (JSON on stdin)
+    local tmp
+    mkdir -p /etc/huma-control
+    tmp=$(mktemp /etc/huma-control/.settings.XXXXXX)
+    if ! "$2" --validate > "$tmp"; then
+        rm -f "$tmp"
+        exit 1
+    fi
+    chmod 644 "$tmp"
+    mv "$tmp" "$1"
+}
+
+# Keyboard light and ambient light settings (/etc/huma-control/keyboard.json); the service
+# merges them with the current settings and validates; fields not given are kept
+kbd_save() {  # JSON on stdin
+    save_json /etc/huma-control/keyboard.json /usr/local/libexec/huma-control-keyboard
+}
+if [ "$verb" = keyboard-set ]; then
+    [ $# -eq 1 ] || usage
+    kbd_save
+    exit 0
+fi
+if [ "$verb" = keyboard ]; then
+    { [ $# -eq 3 ] || [ $# -eq 5 ]; } || usage
+    [[ "$2" =~ ^[0-9]{1,5}$ ]] || usage
+    [[ "$3" =~ ^[01]$ ]] || usage
+    location=null
+    if [ $# -eq 5 ]; then
+        num='^-?[0-9]{1,3}(\.[0-9]{1,8})?$'
+        [[ "$4" =~ $num && "$5" =~ $num ]] || usage
+        location="[$4, $5]"
+    fi
+    daytime=false
+    [ "$3" = 1 ] && daytime=true
+    printf '{"idle_timeout_s": %d, "off_in_daytime": %s, "location": %s}\n' "$((10#$2))" "$daytime" "$location" | kbd_save
+    exit 0
+fi
+
+# Automatic profiles: the service validates the settings (/etc/huma-control/automation.json)
+if [ "$verb" = automation ]; then
+    [ $# -eq 1 ] || usage
+    save_json /etc/huma-control/automation.json /usr/local/libexec/huma-control-service
+    exit 0
+fi
+
+[ $# -eq 2 ] || usage
+[ -d "$DEV" ] || fail "The qc71_laptop driver is not loaded"
+
+# Only writes to an existing driver file (never creates a new one)
+write_attr() {  # file value
+    [ -f "$1" ] || fail "This feature is not supported on this device"
+    echo "$2" > "$1" || fail "The controller did not accept the setting"
+}
+
+# Settings are written to module options so they also apply at boot; the driver
+# applies them on load and writes them again on resume and when AC is plugged/unplugged
+SAVED=/etc/modprobe.d/qc71_laptop-huma-control.conf
+OPTIONS=(charging_profile charging_priority usb_powershare touchpad_toggle fn_lock)
+
+save_option() {  # name value
+    local line="options qc71_laptop" name value
+    for name in "${OPTIONS[@]}"; do
+        value=-1
+        [ -f "$SAVED" ] && value=$(sed -n "s/.*[ ]$name=\(-\?[0-9]\+\).*/\1/p" "$SAVED")
+        [ "$name" = "$1" ] && value=$2
+        line+=" $name=${value:--1}"
+    done
+    printf '# Written by Huma Control Center\n%s\n' "$line" > "$SAVED.tmp"
+    mv "$SAVED.tmp" "$SAVED"
+}
+
+set_bool() {  # file on|off option-name
+    local v=0
+    [ "$2" = on ] && v=1
+    write_attr "$DEV/$1" "$v"
+    [ "$(cat "$DEV/$1")" = "$v" ] || fail "The controller did not accept the setting"
+    save_option "$3" "$v"
+}
+
+# UEFI UniWillVariable byte 95 (after the 4 attribute bytes): power on with AC
+ac_recover() {
+    local f=/sys/firmware/efi/efivars/UniWillVariable-9f33f85c-13ca-4fd1-9c4a-96217722c593
+    [ -r "$f" ] && od -An -tu1 -j $((4 + 95)) -N1 "$f" | tr -d ' '
+}
+
+# The driver verifies the write by reading back from the controller; if the controller
+# drops the value on AC plug/unplug or on resume, the driver writes it again
+set_choice() {  # file value index
+    write_attr "$DEV/$1" "$2"
+    [ "$(cat "$DEV/$1")" = "$2" ] || fail "The controller did not accept the setting"
+    save_option "$1" "$3"
+}
+
+# Custom fan curve module option
+FAN_CURVE_CONF=/etc/modprobe.d/qc71_laptop-fan-curve.conf
+
+case "$verb:$2" in
+    # Fan Boost: controller at full speed; the performance mode is kept
+    fan:auto) write_attr "$DEV/fan_boost" 0 ;;
+    fan:max) write_attr "$DEV/fan_boost" 1 ;;
+    # the driver waits for the controller to update its state, otherwise returns an error
+    super-key-lock:on) write_attr "$DEV/super_key_lock" 1 ;;
+    super-key-lock:off) write_attr "$DEV/super_key_lock" 0 ;;
+    fn-lock:on|fn-lock:off) set_bool fn_lock "$2" fn_lock ;;
+    # Cannot be on together with power on with AC (UEFI); turning that off needs admin
+    # authentication, so it is not done here: the app calls huma-control-uefi first
+    usb-power:on)
+        [ "$(ac_recover)" = 1 ] && fail 'Turn off "Power on when plugged in" first'
+        set_bool usb_powershare on usb_powershare ;;
+    usb-power:off) set_bool usb_powershare off usb_powershare ;;
+    touchpad-toggle:on|touchpad-toggle:off) set_bool touchpad_toggle_enable "$2" touchpad_toggle ;;
+    # The GNOME power mode also changes the driver's platform_profile; the persistent choice
+    # is made there, this command is for fine tuning (not saved)
+    performance:balanced-low|performance:balanced-medium|performance:balanced-high|\
+    performance:quiet-20db|performance:quiet-30db|performance:quiet-40db)
+        write_attr "$DEV/performance_profile" "$2" ;;
+    # Custom fan curve: the driver enforces the safety rules (peak 100%, below 85 °C);
+    # written to a separate module options file so it also applies at boot
+    fan-curve:auto)
+        write_attr "$DEV/fan_curve" auto
+        rm -f "$FAN_CURVE_CONF" ;;
+    fan-curve:*)
+        [[ "$2" =~ ^([0-9]{1,3},){47}[0-9]{1,3}$ ]] || usage
+        write_attr "$DEV/fan_curve" "${2//,/ }"
+        printf '# Huma Control Center fan curve\noptions qc71_laptop fan_curve=%s\n' "$2" > "$FAN_CURVE_CONF" ;;
+    charging-profile:high_capacity) set_choice charging_profile high_capacity 0 ;;
+    charging-profile:balanced) set_choice charging_profile balanced 1 ;;
+    charging-profile:stationary) set_choice charging_profile stationary 2 ;;
+    charging-priority:charge_battery) set_choice charging_priority charge_battery 0 ;;
+    charging-priority:performance) set_choice charging_priority performance 1 ;;
+    *) usage ;;
+esac

@@ -1,0 +1,86 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# SPDX-FileCopyrightText: 2026 Gokhan AY <aygkhn@gmail.com>
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  driver:
+    name: Build kernel module (Fedora 44)
+    runs-on: ubuntu-latest
+    container: fedora:44
+    steps:
+      - name: Install build dependencies
+        run: dnf install -y --setopt=install_weak_deps=False git kernel-devel make gcc elfutils-libelf-devel
+
+      - uses: actions/checkout@v4
+
+      - name: Build
+        run: |
+          KDIR="$(ls -d /usr/src/kernels/* | sort -V | tail -n 1)"
+          echo "Building against $KDIR"
+          make -C driver KDIR="$KDIR"
+          ls -l driver/qc71_laptop.ko
+
+      - name: Clean
+        run: |
+          KDIR="$(ls -d /usr/src/kernels/* | sort -V | tail -n 1)"
+          make -C driver KDIR="$KDIR" clean
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends shellcheck gettext desktop-file-utils
+          python -m pip install reuse
+
+      - name: shellcheck
+        run: |
+          shellcheck --severity=warning \
+            install.sh \
+            tools/hw-report.sh \
+            system/huma-control-helper \
+            system/huma-control-power
+
+      - name: Python syntax
+        run: |
+          python -m py_compile \
+            app/huma-control \
+            system/huma-control-service \
+            system/huma-control-keyboard \
+            system/huma-control-light \
+            system/huma-control-uefi \
+            system/huma-control-presence
+
+      - name: GNOME Shell extension syntax
+        run: |
+          cp huma-control@aygkhn.github.io/extension.js "$RUNNER_TEMP/extension.mjs"
+          node --check "$RUNNER_TEMP/extension.mjs"
+          python -m json.tool huma-control@aygkhn.github.io/metadata.json > /dev/null
+
+      - name: Translations
+        run: |
+          for f in po/*.po app/po/*.po; do
+            msgfmt -c -o /dev/null "$f"
+          done
+
+      - name: Desktop file
+        run: desktop-file-validate app/io.github.aygkhn.HumaControl.desktop
+
+      - name: REUSE compliance
+        run: reuse lint

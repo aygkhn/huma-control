@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# SPDX-FileCopyrightText: 2026 Gokhan AY <aygkhn@gmail.com>
+[Desktop Entry]
+Type=Application
+Name=Huma Control Center
+GenericName=Laptop Control Center
+Comment=Fan, keyboard backlight and power settings
+Exec=huma-control
+Icon=io.github.aygkhn.HumaControl
+Categories=Settings;HardwareSettings;GNOME;GTK;
+Keywords=fan;keyboard;backlight;power;battery;monster;huma;
+StartupNotify=true

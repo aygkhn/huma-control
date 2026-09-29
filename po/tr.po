@@ -1,0 +1,271 @@
+# Turkish translation of the Huma Control Center GNOME Shell extension.
+# SPDX-License-Identifier: GPL-2.0-or-later
+# SPDX-FileCopyrightText: 2026 Gokhan AY <aygkhn@gmail.com>
+msgid ""
+msgstr ""
+"Project-Id-Version: huma-control\n"
+"Report-Msgid-Bugs-To: aygkhn@gmail.com\n"
+"PO-Revision-Date: 2026-09-29 00:00+0300\n"
+"Last-Translator: Gokhan AY <aygkhn@gmail.com>\n"
+"Language-Team: Turkish\n"
+"Language: tr\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+msgid "Performance"
+msgstr "Performans"
+
+
+msgid "Balanced · Low"
+msgstr "Dengeli · Düşük"
+
+msgid "Balanced · Medium"
+msgstr "Dengeli · Orta"
+
+msgid "Balanced · High"
+msgstr "Dengeli · Yüksek"
+
+msgid "Quiet · 20 dB"
+msgstr "Sessiz · 20 dB"
+
+msgid "Quiet · 30 dB"
+msgstr "Sessiz · 30 dB"
+
+msgid "Quiet · 40 dB"
+msgstr "Sessiz · 40 dB"
+
+msgid "Custom"
+msgstr "Özel"
+
+msgid "Fan Boost"
+msgstr "Fan Boost"
+
+msgid "Fan Boost on"
+msgstr "Fan Boost açık"
+
+msgid "Fan Boost off"
+msgstr "Fan Boost kapalı"
+
+msgid "Failed"
+msgstr "Başarısız"
+
+msgid "Keyboard off in daytime"
+msgstr "Gündüz klavye ışığı kapalı"
+
+msgid "Keyboard light by ambient light"
+msgstr "Klavye ışığı ortama göre"
+
+msgid "Automatic brightness"
+msgstr "Otomatik parlaklık"
+
+msgid "Measure now"
+msgstr "Şimdi ölç"
+
+msgid "Ambient light"
+msgstr "Ortam ışığı"
+
+msgid "measured by camera"
+msgstr "kamerayla ölçüldü"
+
+msgid "Not measured yet (measured by camera)"
+msgstr "Henüz ölçülmedi (kamerayla ölçülür)"
+
+msgid "Measuring…"
+msgstr "Ölçülüyor…"
+
+msgid "Keyboard light"
+msgstr "Klavye ışığı"
+
+msgid "Show automatic changes"
+msgstr "Otomatik değişiklikleri göster"
+
+msgid "Remember this brightness for this light"
+msgstr "Şu anki parlaklığı bu ortam için kaydet"
+
+msgid "Very dark"
+msgstr "Çok karanlık"
+
+msgid "Dark"
+msgstr "Karanlık"
+
+msgid "Bright"
+msgstr "Aydınlık"
+
+msgid "Very bright"
+msgstr "Çok aydınlık"
+
+msgid "Sunlight"
+msgstr "Güneş"
+
+msgid "Someone is at the computer"
+msgstr "Bilgisayar başında biri var"
+
+msgid "Lock when nobody is there"
+msgstr "Kimse yoksa kilitle"
+
+msgid "Balanced"
+msgstr "Dengeli"
+
+msgid "Quiet"
+msgstr "Sessiz"
+
+msgid "Low"
+msgstr "Düşük"
+
+msgid "Medium"
+msgstr "Orta"
+
+msgid "High"
+msgstr "Yüksek"
+
+msgid "Performance settings"
+msgstr "Performans ayarları"
+
+msgid "Ambient light settings"
+msgstr "Ortam ışığı ayarları"
+
+msgid "Power saver"
+msgstr "Tasarruf"
+
+
+msgid "Power mode could not be changed"
+msgstr "Güç kipi değiştirilemedi"
+
+
+msgid "Mode"
+msgstr "Mod"
+
+msgid "Level"
+msgstr "Seviye"
+
+msgid "CPU power limit %s"
+msgstr "İşlemci güç sınırı %s"
+
+
+msgid "On battery"
+msgstr "Pile geçildi"
+
+msgid "Plugged in"
+msgstr "Prize takıldı"
+
+msgid "power saving on"
+msgstr "tasarruf açık"
+
+msgid "power saving paused"
+msgstr "tasarruf beklemede"
+
+msgid "Nobody seems to be here: locking in 10 seconds. Touch to cancel."
+msgstr "Kimse görünmüyor: 10 saniye içinde kilitlenecek. İptal için dokun."
+
+msgid "%s: %d%%"
+msgstr "%s: %%%d"
+
+# Texts written by the root services and helpers (translated from their codes)
+
+msgctxt "decimal separator"
+msgid "."
+msgstr ","
+
+msgctxt "keyboard backlight"
+msgid "Off"
+msgstr "Kapalı"
+
+msgctxt "keyboard backlight"
+msgid "Dim"
+msgstr "Kısık"
+
+msgctxt "keyboard backlight"
+msgid "Bright"
+msgstr "Parlak"
+
+msgid "{value}%"
+msgstr "%{value}"
+
+msgid "very dark"
+msgstr "çok karanlık"
+
+msgid "dark"
+msgstr "karanlık"
+
+msgid "bright"
+msgstr "aydınlık"
+
+msgid "daytime"
+msgstr "gündüz"
+
+msgid "CPU is overheating"
+msgstr "İşlemci çok ısındı"
+
+msgid "CPU at {temp} °C. Make sure the air vents are not blocked; Fan Boost can be turned on from the Performance page."
+msgstr "İşlemci {temp} °C. Havalandırma deliklerinin açık olduğundan emin olun; Performans sayfasından Fan Boost açılabilir."
+
+msgid "Fan failure"
+msgstr "Fan arızası"
+
+msgid "The controller reports a fan failure (the fan is not spinning or is stuck)."
+msgstr "Kontrolcü fan arızası bildiriyor (fan dönmüyor ya da takılı)."
+
+msgid "Fan is not spinning"
+msgstr "Fan dönmüyor"
+
+msgid "The fan is stopped although the CPU is at {temp} °C."
+msgstr "İşlemci {temp} °C olduğu hâlde fan duruyor."
+
+msgid "Battery health has dropped"
+msgstr "Pil sağlığı düştü"
+
+msgid "When full, the battery holds {full_wh} Wh (design {design_wh} Wh, {percent}). \"Balanced\" or \"Stationary\" in Battery Care protects the battery."
+msgstr "Pil tam dolunca {full_wh} Wh (tasarım {design_wh} Wh, {percent}). Pil bakımında \"Dengeli\" ya da \"Sabit kullanım\" pili korur."
+
+msgid "Another setting is being applied, try again later"
+msgstr "Başka bir ayar uygulanıyor, sonra tekrar deneyin"
+
+msgid "The qc71_laptop driver is not loaded"
+msgstr "qc71_laptop sürücüsü yüklü değil"
+
+msgid "This feature is not supported on this device"
+msgstr "Bu özellik bu cihazda desteklenmiyor"
+
+msgid "The controller did not accept the setting"
+msgstr "Kontrolcü ayarı kabul etmedi"
+
+msgid "Turn off \"Power on when plugged in\" first"
+msgstr "Önce \"Priz takılınca açıl\" ayarını kapatın"
+
+msgid "UEFI variable is not in the expected format; left untouched"
+msgstr "UEFI değişkeni beklenen biçimde değil, dokunulmadı"
+
+msgid "This device does not support power on with AC"
+msgstr "Bu cihaz AC ile açılmayı desteklemiyor"
+
+msgid "Turn off \"USB power while off\" first"
+msgstr "Önce \"Kapalıyken USB güç\" ayarını kapatın"
+
+msgid "Could not verify the UEFI variable; the previous value was restored"
+msgstr "UEFI değişkeni doğrulanamadı, eski hali geri yazıldı"
+
+msgid "Power on with AC setting not found on this device"
+msgstr "Bu cihazda AC ile açılma ayarı bulunamadı"
+
+msgid "camera not found"
+msgstr "kamera bulunamadı"
+
+msgid "camera is open in another application"
+msgstr "kamera başka bir uygulamada açık"
+
+msgid "could not get an image from the camera"
+msgstr "kameradan görüntü alınamadı"
+
+msgid "could not get an image from the IR camera"
+msgstr "IR kameradan görüntü alınamadı"
+
+msgid "Invalid settings: {error}"
+msgstr "Geçersiz ayarlar: {error}"
+
+msgid "measurement failed: {error}"
+msgstr "ölçüm başarısız: {error}"
+
+msgid "check failed: {error}"
+msgstr "denetim başarısız: {error}"

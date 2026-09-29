@@ -1,0 +1,14 @@
+Huma Control Center
+===================
+
+Maintainer
+    Gokhan AY <aygkhn@gmail.com>
+
+Kernel driver (driver/)
+    The driver is a fork of qc71_laptop:
+    Barnabás Pőcze <pobrn@protonmail.com>, original author of qc71_laptop
+    Slimbook team and contributors of the Slimbook-Team/qc71_laptop fork
+    Michael de By, white keyboard backlight support (Slimbook-Team/qc71_laptop PR #5)
+    Gokhan AY, PH4TUX1 support and the extensions listed in driver/README.md
+
+Third-party components are listed in THIRD_PARTY.md.

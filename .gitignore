@@ -1,0 +1,21 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# SPDX-FileCopyrightText: 2026 Gokhan AY <aygkhn@gmail.com>
+# Python
+__pycache__/
+*.pyc
+
+# Kernel module build artefacts (driver/)
+*.o
+*.ko
+*.mod
+*.mod.c
+*.mod.o
+.*.cmd
+.*.d
+Module.symvers
+modules.order
+.tmp_versions/
+
+# Note: compiled translations (*.mo) are tracked on purpose; the GNOME Shell
+# extension loads them from huma-control@aygkhn.github.io/locale/.
+app/locale/

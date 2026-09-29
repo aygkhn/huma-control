@@ -1,0 +1,21 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+// SPDX-FileCopyrightText: 2026 Gokhan AY <aygkhn@gmail.com>
+// A local, active user in the wheel group may run the Huma Control Center helpers
+// as root without a password (everyday and power-saving settings)
+polkit.addRule(function(action, subject) {
+    var program = action.lookup("program");
+    if (action.id == "org.freedesktop.policykit.exec" &&
+        (program == "/usr/local/libexec/huma-control-helper" ||
+         program == "/usr/local/libexec/huma-control-power") &&
+        subject.local && subject.active && subject.isInGroup("wheel"))
+        return polkit.Result.YES;
+});
+
+// The helper that writes a UEFI variable (power on with AC) asks for the admin
+// password; the password is remembered for a few minutes
+polkit.addRule(function(action, subject) {
+    if (action.id == "org.freedesktop.policykit.exec" &&
+        action.lookup("program") == "/usr/local/libexec/huma-control-uefi" &&
+        subject.local && subject.active && subject.isInGroup("wheel"))
+        return polkit.Result.AUTH_ADMIN_KEEP;
+});

@@ -1,0 +1,106 @@
+#!/usr/local/lib/huma-control/presence/bin/python
+# SPDX-License-Identifier: GPL-2.0-or-later
+# SPDX-FileCopyrightText: 2026 Gokhan AY <aygkhn@gmail.com>
+"""Is someone at the computer? (so the screen can turn off when nobody is)
+
+Checked once when idle. The IR camera (Windows Hello camera) is used if present: it sees
+with its own infrared light, so it also works in the dark (frames alternate light on/off,
+the brightest is used); otherwise the normal camera. If both exist, it can be chosen in
+the settings. Faces are detected with the YuNet model (OpenCV, in the
+/usr/local/lib/huma-control/presence environment). No image is stored.
+
+  huma-control-presence [auto|ir|normal]
+      prints 1 (someone there) or 0 (nobody); exit 0 ok, 2 camera open in another
+      application (video call: assume someone is there), 1 error. auto or ir: IR if
+      present, otherwise the normal camera; normal: the normal camera
+"""
+import fcntl
+import importlib.util
+import os
+import subprocess
+import sys
+from importlib.machinery import SourceFileLoader
+from pathlib import Path
+
+os.environ.setdefault('OPENCV_LOG_LEVEL', 'ERROR')
+import cv2  # noqa: E402
+import numpy as np  # noqa: E402
+
+MODEL = '/usr/local/share/huma-control/yunet.onnx'
+CONFIDENCE = 0.7
+# finding the camera and the "open in another application" check are shared with the light meter
+_loader = SourceFileLoader('light', '/usr/local/libexec/huma-control-light')
+light = importlib.util.module_from_spec(importlib.util.spec_from_loader('light', _loader))
+_loader.exec_module(light)
+
+
+def ir_camera():
+    for dev in sorted(Path('/sys/class/video4linux').glob('video*')):
+        if 'IR' in (dev / 'name').read_text().split(':')[-1] and (dev / 'index').read_text().strip() == '0':
+            return f'/dev/{dev.name}'
+    return None
+
+
+def frames(device, fmt, width, height, count):
+    for _ in range(2):   # if the camera was just closed (right after IR) the first open may return nothing
+        shots = capture(device, fmt, width, height, count)
+        if shots:
+            return shots
+    return []
+
+
+def capture(device, fmt, width, height, count):
+    raw = subprocess.run(
+        ['ffmpeg', '-loglevel', 'error', '-f', 'v4l2', '-input_format', fmt, '-video_size', f'{width}x{height}',
+         '-i', device, '-frames:v', str(count), '-vf', 'format=gray', '-f', 'rawvideo', '-'],
+        capture_output=True, timeout=10).stdout
+    size = width * height
+    return [np.frombuffer(raw[i:i + size], np.uint8).reshape(height, width)
+            for i in range(0, len(raw) - size + 1, size)]
+
+
+def has_face(image):
+    height, width = image.shape
+    detector = cv2.FaceDetectorYN.create(MODEL, '', (width, height), CONFIDENCE)
+    _, faces = detector.detect(cv2.cvtColor(image, cv2.COLOR_GRAY2BGR))
+    return faces is not None and len(faces) > 0
+
+
+def main():
+    choice = sys.argv[1] if len(sys.argv) > 1 else 'auto'
+    rgb, infrared = light.camera(), ir_camera()
+    ir = infrared if choice != 'normal' else None
+    normal = None if ir else rgb
+    if not normal and not ir:
+        print('camera not found', file=sys.stderr)
+        sys.exit(1)
+    # do not access the camera while light is being measured (same USB camera: always lock the normal camera)
+    lock = os.open(rgb or infrared, os.O_RDONLY | os.O_NONBLOCK)
+    fcntl.flock(lock, fcntl.LOCK_EX)
+    if any(light.in_use(d) for d in (rgb, infrared) if d):
+        print('camera is open in another application', file=sys.stderr)
+        sys.exit(2)
+    try:
+        if ir:
+            # after ~6 frames the IR light is on every other frame: check the two brightest frames
+            shots = sorted(frames(ir, 'gray', 640, 360, 12), key=lambda f: f.mean(), reverse=True)
+            if not shots:   # no image: not "nobody", but unknown (must not lock)
+                raise OSError('could not get an image from the IR camera')
+            if any(has_face(f) for f in shots[:2]):
+                print(1)
+                return
+        if normal:
+            shots = frames(normal, 'yuyv422', 640, 480, 10)
+            if not shots:
+                raise OSError('could not get an image from the camera')
+            if has_face(shots[-1]):
+                print(1)
+                return
+        print(0)
+    except (OSError, subprocess.SubprocessError, cv2.error) as e:
+        print(f'check failed: {e}', file=sys.stderr)
+        sys.exit(1)
+
+
+if __name__ == '__main__':
+    main()

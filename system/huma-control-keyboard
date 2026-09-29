@@ -1,0 +1,978 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: GPL-2.0-or-later
+# SPDX-FileCopyrightText: 2026 Gokhan AY <aygkhn@gmail.com>
+"""Huma Control Center: system service that turns off the keyboard light when idle.
+
+The GNOME extension only runs while a session is open; on the login screen, the lock
+screen and after logging out the light stayed on. This service runs as root from boot,
+only reads keyboard and touchpad events (evdev), turns the light off after the set idle
+time and restores the previous level on the first touch.
+Between sunrise and sunset it starts with the light off: at boot, on login, on resume
+from sleep and at sunrise (it can be turned on with Fn+F6 afterwards).
+
+Ambient light (this laptop has no light sensor, it is measured with the camera:
+huma-control-light; the camera light flashes briefly while measuring, nothing is measured
+if the camera is open in another app; while a movie / full screen is playing the GNOME
+extension leaves /run/user/<uid>/huma-control-pause, no measurement then, one
+measurement once it ends):
+  dark_turn_on     follow ambient light (to save power): on when dark, off when bright;
+                   measured when returning from a break, 3 s after Fn+F6 and every
+                   measure_interval_s seconds while someone is at the computer; turning off
+                   in daytime does not apply in a dark room
+  screen_auto      measure every measure_interval_s seconds while someone is at the computer
+                   and when returning from a break; result in /run/huma-control/light.json,
+                   the Huma Control Center GNOME extension sets the screen brightness
+  battery_only     save power only on battery (default): on AC the light is not turned off
+                   when idle, in daytime or when bright, the Fn+F6 choice is kept; it is
+                   still turned on in the dark; measured at most every 10 minutes. Measured
+                   right away when AC is unplugged, turned off if it is daytime.
+
+Settings in /etc/huma-control/keyboard.json (written by Huma Control Center through
+huma-control-helper):
+  {"idle_timeout_s": 15, "off_in_daytime": true, "location": [latitude, longitude],
+   "dark_turn_on": false, "dark_threshold": 20, "very_dark_threshold": 8, "screen_auto": false,
+   "screen_sensitivity": 2, "measure_interval_s": 600, "osd": true, "battery_only": true,
+   "sun_full": true, "sun_threshold": 1000, "screen_method": "stages",
+   "screen_stages": [15, 30, 60, 80, 100], "presence": false, "presence_s": 60,
+   "presence_camera": "auto"}
+  Keyboard levels: below very_dark_threshold Bright (2), below dark_threshold Dim (1), above
+  1.5 times dark_threshold Off; left alone in between.
+  The helper writes the file (this service cannot write /etc: ProtectSystem=strict).
+
+  huma-control-keyboard --validate   merge the settings on stdin with the current ones,
+                                     validate, print the resulting JSON
+"""
+import errno
+import glob
+import json
+import math
+import os
+import select
+import signal
+import socket
+import struct
+import sys
+import threading
+import time
+from datetime import datetime, timezone
+from pathlib import Path
+
+CONFIG = Path('/etc/huma-control/keyboard.json')
+LED = Path('/sys/class/leds/white:kbd_backlight')
+DAYTIME_MARK = Path('/run/huma-control-keyboard.daytime')  # once per boot
+EVENT = struct.Struct('llHHi')  # struct input_event (64 bit)
+EV_KEY, EV_REL, EV_ABS = 1, 2, 3
+RESCAN = 10  # s; plugged/unplugged devices (fallback polling if uevent/inotify could not be set up)
+TICK = 60    # s; regular check while events (uevent, inotify) are watched: sunrise, fallback checks
+WATCH_AFTER = 10  # s; after a touch, Fn+F6 or resume the light level is read every 2 s for this long
+# left by the GNOME extension during a movie / full screen: camera measurement is paused
+PAUSE_FILES = '/run/user/*/huma-control-pause'
+NETLINK_KOBJECT_UEVENT = 15
+IN_CLOSE_WRITE, IN_MOVED_TO, IN_CREATE = 0x8, 0x80, 0x100
+IN_Q_OVERFLOW, IN_IGNORED = 0x4000, 0x8000
+INOTIFY_EVENT = struct.Struct('iIII')   # struct inotify_event (followed by the name)
+INPUT_QUIET = 1  # s; events are not read for this long after a touch (mouse/touchpad produce
+                 # hundreds of events/s; one-second accuracy is enough for the idle timer)
+AC_MEASURE_MIN = 600  # s; on AC ambient light is measured at most this often (camera light, power)
+
+
+def on_mains():
+    for ps in Path('/sys/class/power_supply').iterdir():
+        try:
+            if (ps / 'type').read_text().strip() == 'Mains':
+                return (ps / 'online').read_text().strip() == '1'
+        except OSError:
+            continue
+    return False
+
+
+def log(text):
+    print(text, flush=True)
+
+
+LIGHT_TOOL = '/usr/local/libexec/huma-control-light'
+LIGHT_STATE = Path('/run/huma-control/light.json')   # {"value": reading, "time": ISO time}
+# Automatic keyboard changes: the Huma Control Center extension shows an on-screen display (OSD).
+# 'name' and 'reason' are English (for other tools); the app and extension
+# translate from 'level' and 'reason_code'.
+KBD_EVENT = Path('/run/huma-control/keyboard-event.json')
+LEVEL_NAMES = ['Off', 'Dim', 'Bright']
+REASONS = {'very-dark': 'very dark', 'dark': 'dark', 'bright': 'bright', 'daytime': 'daytime'}
+
+
+def announce(level, code):
+    try:
+        KBD_EVENT.parent.mkdir(parents=True, exist_ok=True)
+        tmp = KBD_EVENT.with_suffix('.tmp')
+        tmp.write_text(json.dumps({'level': level, 'name': LEVEL_NAMES[level], 'reason': REASONS[code],
+                                   'reason_code': code, 'time': time.time()}, ensure_ascii=False))
+        os.chmod(tmp, 0o644)
+        tmp.replace(KBD_EVENT)
+    except OSError:
+        pass
+DEFAULTS = {'idle_timeout_s': 15, 'off_in_daytime': True, 'location': None, 'dark_turn_on': False,
+            'dark_threshold': 20, 'very_dark_threshold': 8, 'screen_auto': False, 'screen_sensitivity': 2,
+            'measure_interval_s': 600, 'osd': True, 'battery_only': True, 'sun_full': True,
+            'sun_threshold': 1000, 'screen_method': 'stages', 'screen_stages': [15, 30, 60, 80, 100],
+            'presence': False, 'presence_s': 60, 'presence_camera': 'auto'}
+
+
+def number(data, key, default):
+    """Numeric field: bool, text, infinity and NaN are rejected."""
+    value = data.get(key, default)
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+        raise ValueError(f'{key} must be a number')
+    return int(value)
+
+
+def flag(data, key, default):
+    value = data.get(key, default)
+    if not isinstance(value, bool):
+        raise ValueError(f'{key} must be true or false')
+    return value
+
+
+def validate(data):
+    if not isinstance(data, dict):
+        raise ValueError('settings must be an object')
+    out = dict(DEFAULTS)
+    out['idle_timeout_s'] = number(data, 'idle_timeout_s', 15)
+    if not 0 <= out['idle_timeout_s'] <= 86400:
+        raise ValueError('idle_timeout_s must be 0-86400 s')
+    out['off_in_daytime'] = flag(data, 'off_in_daytime', True)
+    location = data.get('location')
+    if location is not None:
+        if (not isinstance(location, list) or len(location) != 2 or
+                any(isinstance(v, bool) or not isinstance(v, (int, float)) for v in location)):
+            raise ValueError('location must be [latitude, longitude]')
+        lat, lon = float(location[0]), float(location[1])
+        if not (-90 <= lat <= 90 and -180 <= lon <= 180):   # NaN is rejected here too
+            raise ValueError('location is invalid')
+        location = [round(lat, 4), round(lon, 4)]
+    out['location'] = location
+    out['dark_turn_on'] = flag(data, 'dark_turn_on', False)
+    out['dark_threshold'] = number(data, 'dark_threshold', 20)
+    if not 1 <= out['dark_threshold'] <= 200:
+        raise ValueError('dark_threshold must be 1-200')
+    out['very_dark_threshold'] = number(data, 'very_dark_threshold', min(8, out['dark_threshold'] - 1 or 1))
+    if not 1 <= out['very_dark_threshold'] <= out['dark_threshold']:
+        raise ValueError('very_dark_threshold must be between 1 and dark_threshold')
+    out['screen_sensitivity'] = number(data, 'screen_sensitivity', 2)
+    if out['screen_sensitivity'] not in (1, 2, 3):
+        raise ValueError('screen_sensitivity must be 1-3')
+    out['screen_auto'] = flag(data, 'screen_auto', False)
+    out['osd'] = flag(data, 'osd', True)   # on-screen display for automatic changes
+    out['battery_only'] = flag(data, 'battery_only', True)
+    # sunlight level: above this reading the screen is at full brightness (indoors 0-255; readings up to ~25500)
+    out['sun_full'] = flag(data, 'sun_full', True)
+    out['sun_threshold'] = number(data, 'sun_threshold', 1000)
+    if not 256 <= out['sun_threshold'] <= 25000:
+        raise ValueError('sun_threshold must be 256-25000')
+    # screen: 'stages' = percentage set for each ambient level (very dark, dark, bright,
+    # very bright, sunlight); 'relative' = relative to the ambient light the slider was set in
+    out['screen_method'] = data.get('screen_method', 'stages')
+    if out['screen_method'] not in ('stages', 'relative'):
+        raise ValueError('screen_method must be stages or relative')
+    stages = data.get('screen_stages', DEFAULTS['screen_stages'])
+    if not isinstance(stages, list) or len(stages) != 5:
+        raise ValueError('screen_stages must be 5 values of 5-100%')
+    stages = [number({'screen_stages': v}, 'screen_stages', None) for v in stages]
+    if not all(5 <= v <= 100 for v in stages):
+        raise ValueError('screen_stages must be 5 values of 5-100%')
+    # must increase from dark to bright (dimmer screen in the dark): otherwise corrected
+    for i in range(1, 5):
+        stages[i] = max(stages[i], stages[i - 1])
+    out['screen_stages'] = stages
+    # presence check (GNOME extension): when idle, look with the camera; if nobody is there, lock and turn off
+    out['presence'] = flag(data, 'presence', False)
+    out['presence_s'] = number(data, 'presence_s', 60)
+    if not 15 <= out['presence_s'] <= 1800:
+        raise ValueError('presence_s must be 15-1800 s')
+    out['presence_camera'] = data.get('presence_camera', 'auto')
+    if out['presence_camera'] not in ('auto', 'ir', 'normal'):
+        raise ValueError('presence_camera must be auto, ir or normal')
+    out['measure_interval_s'] = number(data, 'measure_interval_s', 600)
+    if not 5 <= out['measure_interval_s'] <= 7200:
+        raise ValueError('measure_interval_s must be 5-7200 s')
+    return out
+
+
+CONFIG_ERRORS = (ValueError, TypeError, IndexError, OverflowError)
+
+
+def sanitize(data, errors):
+    """Drop invalid fields and validate (broken values are not merged with the defaults);
+    dropped fields are added to the errors list."""
+    try:
+        return validate(data)
+    except CONFIG_ERRORS as e:
+        errors.append(str(e))
+    if not isinstance(data, dict):
+        return dict(DEFAULTS)
+    good = {}
+    # DEFAULTS order: dark_threshold is tried before very_dark_threshold
+    for key in [k for k in DEFAULTS if k in data] + [k for k in data if k not in DEFAULTS]:
+        try:
+            validate({**good, key: data[key]})
+            good[key] = data[key]
+        except CONFIG_ERRORS as e:
+            errors.append(f'{key} ignored: {e}')
+    return validate(good)
+
+
+def load_config():
+    try:
+        data = json.loads(CONFIG.read_text())
+    except OSError:
+        return dict(DEFAULTS)
+    except ValueError as e:
+        log(f'could not read the settings file, using defaults: {e}')
+        return dict(DEFAULTS)
+    errors = []
+    config = sanitize(data, errors)
+    for e in errors:
+        log(f'invalid setting: {e}')
+    return config
+
+
+def brightness():
+    try:
+        return int((LED / 'brightness').read_text())
+    except (OSError, ValueError):
+        return None
+
+
+def set_brightness(value):
+    try:
+        (LED / 'brightness').write_text(str(value))
+    except OSError as e:
+        log(f'could not write the keyboard light: {e}')
+
+
+def input_devices():
+    """Keyboard, mouse and touchpad event files (/proc/bus/input/devices)."""
+    paths = set()
+    try:
+        blocks = Path('/proc/bus/input/devices').read_text().split('\n\n')
+    except OSError:
+        return paths
+    for block in blocks:
+        handlers = next((l.split('=', 1)[1].split() for l in block.splitlines() if l.startswith('H: Handlers=')), [])
+        # the lid switch (B: SW=) is watched too: not a touch, but it wakes the loop on resume
+        switch = any(l.startswith('B: SW=') and l[6:].strip('0 ') for l in block.splitlines())
+        if switch or any(h in ('kbd', 'mouse0', 'mouse1', 'mouse2') or h.startswith('mouse') for h in handlers):
+            paths |= {f'/dev/input/{h}' for h in handlers if h.startswith('event')}
+    return paths
+
+
+def uevent_socket():
+    """Kernel events (AC, keyboard light, input devices); None if it cannot be opened: fall back to polling."""
+    try:
+        sock = socket.socket(socket.AF_NETLINK, socket.SOCK_DGRAM | socket.SOCK_NONBLOCK | socket.SOCK_CLOEXEC,
+                             NETLINK_KOBJECT_UEVENT)
+    except (OSError, AttributeError) as e:
+        log(f'cannot listen to kernel events ({e}): AC and devices will be polled')
+        return None
+    try:
+        sock.bind((0, 1))   # 1: kernel group (not udev's rebroadcast)
+    except OSError as e:
+        log(f'cannot listen to kernel events ({e}): AC and devices will be polled')
+        sock.close()
+        return None
+    return sock
+
+
+class Inotify:
+    """inotify through ctypes (Python has no built-in). OSError if it cannot be set up; polling
+    continues for directories that cannot be watched."""
+
+    def __init__(self):
+        import ctypes
+        self.libc = ctypes.CDLL(None, use_errno=True)
+        self.fd = self.libc.inotify_init1(os.O_NONBLOCK | os.O_CLOEXEC)
+        if self.fd < 0:
+            raise OSError(ctypes.get_errno(), 'inotify_init1')
+        self.watches = {}   # wd -> kind
+
+    def add(self, path, mask, kind):
+        wd = self.libc.inotify_add_watch(self.fd, os.fsencode(str(path)), mask)
+        if wd >= 0:
+            self.watches[wd] = kind
+        return wd >= 0
+
+    def read(self):
+        """Pending events: [(kind, name)]; ('overflow', '') on queue overflow, ('dropped', kind) if a watch was dropped."""
+        out = []
+        while True:
+            try:
+                data = os.read(self.fd, 4096)
+            except BlockingIOError:
+                return out
+            except OSError:
+                return out + [('overflow', '')]
+            i = 0
+            while i + INOTIFY_EVENT.size <= len(data):
+                wd, mask, _, n = INOTIFY_EVENT.unpack_from(data, i)
+                name = data[i + INOTIFY_EVENT.size:i + INOTIFY_EVENT.size + n].rstrip(b'\0').decode(errors='replace')
+                i += INOTIFY_EVENT.size + n
+                if mask & IN_Q_OVERFLOW:
+                    out.append(('overflow', ''))
+                elif mask & IN_IGNORED:   # directory removed / remounted
+                    kind = self.watches.pop(wd, None)
+                    if kind:
+                        out.append(('dropped', kind))
+                elif wd in self.watches:
+                    out.append((self.watches[wd], name))
+
+
+# ------------------------------------------------------------------ daytime
+
+def timezone_location():
+    try:
+        zone = os.readlink('/etc/localtime').split('zoneinfo/', 1)[1]
+        for line in Path('/usr/share/zoneinfo/zone1970.tab').read_text().splitlines():
+            parts = line.split('\t')
+            if len(parts) >= 3 and parts[2] == zone:
+                c = parts[1]
+                i = max(c.rfind('+'), c.rfind('-'))
+                lat, lon = c[:i], c[i:]
+                deg = lambda s, n: (1 if s[0] == '+' else -1) * (int(s[1:1 + n]) + int(s[1 + n:3 + n]) / 60)
+                return deg(lat, 2), deg(lon, 3)
+    except (OSError, IndexError, ValueError):
+        pass
+    return None
+
+
+def is_daytime(lat, lon, now=None):
+    """Is it between sunrise and sunset (NOAA approximation)."""
+    now = now or datetime.now(timezone.utc)
+    g = 2 * math.pi / 365 * (now.timetuple().tm_yday - 1)
+    eqtime = 229.18 * (0.000075 + 0.001868 * math.cos(g) - 0.032077 * math.sin(g) -
+                       0.014615 * math.cos(2 * g) - 0.040849 * math.sin(2 * g))
+    decl = (0.006918 - 0.399912 * math.cos(g) + 0.070257 * math.sin(g) - 0.006758 * math.cos(2 * g) +
+            0.000907 * math.sin(2 * g) - 0.002697 * math.cos(3 * g) + 0.00148 * math.sin(3 * g))
+    cos_ha = (math.cos(math.radians(90.833)) / (math.cos(math.radians(lat)) * math.cos(decl)) -
+              math.tan(math.radians(lat)) * math.tan(decl))
+    if cos_ha >= 1:
+        return False
+    if cos_ha <= -1:
+        return True
+    ha = math.degrees(math.acos(cos_ha))
+    minutes = now.hour * 60 + now.minute
+    return 720 - 4 * (lon + ha) - eqtime <= minutes <= 720 - 4 * (lon - ha) - eqtime
+
+
+def measure_light():
+    """Ambient brightness (0-255) or None (camera busy / missing); the result is written to light.json."""
+    import subprocess
+    try:
+        r = subprocess.run([LIGHT_TOOL], capture_output=True, text=True, timeout=20)
+        value = float(r.stdout.strip()) if r.returncode == 0 else None
+    except (OSError, ValueError, subprocess.SubprocessError):
+        value = None
+    if value is not None:
+        try:
+            LIGHT_STATE.parent.mkdir(parents=True, exist_ok=True)
+            tmp = LIGHT_STATE.with_suffix('.tmp')
+            tmp.write_text(json.dumps({'value': value, 'time': datetime.now().isoformat(timespec='seconds')}))
+            os.chmod(tmp, 0o644)
+            tmp.replace(LIGHT_STATE)
+        except OSError:
+            pass
+    return value
+
+
+def daytime(config):
+    where = config.get('location') or timezone_location()
+    return bool(where) and is_daytime(*where)
+
+
+def user_sessions():
+    """Open user sessions (logind); the login screen (greeter) does not count."""
+    out = set()
+    try:
+        for f in os.scandir('/run/systemd/sessions'):
+            if f.name.endswith('.ref'):
+                continue
+            try:
+                if 'CLASS=user\n' in Path(f.path).read_text():
+                    out.add(f.name)
+            except OSError:
+                pass
+    except OSError:
+        pass
+    return out
+
+
+def boottime_gap():
+    """Total time spent asleep (CLOCK_BOOTTIME - CLOCK_MONOTONIC)."""
+    return time.clock_gettime(time.CLOCK_BOOTTIME) - time.monotonic()
+
+
+# ------------------------------------------------------------------ main loop
+
+class Keyboard:
+    def __init__(self):
+        self.devices = {}         # path -> file descriptor
+        self.saved = 0            # level before turning off
+        self.idle_done = False    # handled for this idle period (not rechecked if the light is off)
+        self.lock = threading.Lock()   # saved/light check-and-write pairs (measurement thread)
+        self.last_input = time.monotonic()
+        self.quiet_until = 0      # input events are not read until this time (INPUT_QUIET)
+        self.restore_checks = []  # GNOME may set the light to 0 while dimming and undimming
+        self.config = load_config()
+        self.config_mtime = self.mtime()
+        self.sessions = user_sessions()
+        self.sleep_gap = boottime_gap()
+        self.was_day = None
+        # For a while after turning off in daytime, turn off again if someone else turns it on
+        # (GNOME's power manager restores the old level on resume); leave it if Fn+F6 was pressed
+        self.enforce_until = 0
+        self.last_fn = -1e9       # Fn+F6: the driver's brightness_hw_changed notification
+        self.ours = (None, 0)     # (level, time): the last one we wrote
+        self.level = brightness()
+        self.last_on = 2          # level to use in the dark: the last on level
+        self.last_measure = -1e9
+        self.measuring = False
+        self.fn_measure_at = 0    # correct by ambient light after Fn+F6
+        self.daytime_pending = None   # daytime turn-off requested while measuring (reason)
+        self.mains = on_mains()
+        self.bat_status = None    # AC is not re-read on battery events if the status did not change
+        self.pause = False        # movie / full screen pause seen (logged once)
+        self.pause_missed = False  # a measurement was skipped while paused: measure once afterwards
+        # the light level is read only when needed (see watch_level): every 2 s until this time
+        self.watch_until = time.monotonic() + WATCH_AFTER
+        self.next_watch = time.monotonic() + 2
+        self.hw_fd = None
+        self.open_hw()
+        # AC, input devices, the settings file and sessions are watched by events (instead of polling)
+        self.uevent = uevent_socket()
+        self.notify = None
+        self.watching = set()
+        try:
+            self.notify = Inotify()
+            for path, mask, kind in ((CONFIG.parent, IN_CLOSE_WRITE | IN_MOVED_TO, 'config'),
+                                     ('/run/systemd/sessions', IN_CREATE | IN_MOVED_TO, 'session')):
+                if self.notify.add(path, mask, kind):
+                    self.watching.add(kind)
+        except (OSError, AttributeError) as e:
+            log(f'could not set up inotify ({e}): settings and sessions will be polled')
+            self.notify = None
+
+    def open_hw(self):
+        try:
+            self.hw_fd = os.open(LED / 'brightness_hw_changed', os.O_RDONLY)
+        except OSError:
+            self.hw_fd = None
+            return
+        self.read_hw()
+
+    @staticmethod
+    def mtime():
+        try:
+            return CONFIG.stat().st_mtime
+        except OSError:
+            return None
+
+    def rescan(self, devices_only=False):
+        wanted = input_devices()
+        for path in list(self.devices):
+            if path not in wanted:
+                self.close_device(self.devices[path])
+        for path in wanted - set(self.devices):
+            try:
+                self.devices[path] = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
+            except OSError:
+                pass
+        if devices_only:
+            return
+        # if the driver was reloaded (read_hw closed it) the notification file is reopened
+        if self.hw_fd is None:
+            self.open_hw()
+        self.reload_config()
+
+    def events_ok(self):
+        """Are AC and sessions watched by events (otherwise checked every 2 s as before)."""
+        return self.uevent is not None and 'session' in self.watching
+
+    def scan_polled(self):
+        """Should devices or the settings file be polled (RESCAN), or only a fallback check on TICK."""
+        return self.uevent is None or 'config' not in self.watching
+
+    def watch_soon(self, delay=2):
+        """Read the light level after delay s and then every 2 s for WATCH_AFTER s."""
+        now = time.monotonic()
+        self.watch_until = max(self.watch_until, now + WATCH_AFTER)
+        self.next_watch = min(self.next_watch, now + delay)
+
+    def watch_fast(self, now):
+        # without brightness_hw_changed, Fn+F6 is only seen by polling
+        return now < self.watch_until or now < self.enforce_until or self.hw_fd is None
+
+    def read_uevents(self):
+        """Kernel events: AC plugged/unplugged (ONLINE comes in the event, no EC read), keyboard
+        light added again (driver reloaded), input device plugged/unplugged."""
+        power, mains, scan = False, None, False
+        while True:
+            try:
+                msg = self.uevent.recv(16384)
+            except BlockingIOError:
+                break
+            except OSError as e:
+                if e.errno == errno.ENOBUFS:   # queue overflow, events may be lost: check once
+                    power = scan = True
+                    continue
+                break
+            env = dict(f.split(b'=', 1) for f in msg.split(b'\0')[1:] if b'=' in f)
+            subsystem, action = env.get(b'SUBSYSTEM'), env.get(b'ACTION')
+            if subsystem == b'power_supply':
+                if env.get(b'POWER_SUPPLY_TYPE') == b'Mains' and b'POWER_SUPPLY_ONLINE' in env:
+                    mains = env[b'POWER_SUPPLY_ONLINE'] == b'1'
+                    power = False
+                elif env.get(b'POWER_SUPPLY_TYPE') == b'Mains' or action != b'change':
+                    power = True
+                else:
+                    # battery events are frequent (capacity); AC is read only when the status changes
+                    status = env.get(b'POWER_SUPPLY_STATUS')
+                    if status != self.bat_status:
+                        self.bat_status = status
+                        power = mains is None
+            elif (subsystem == b'leds' and action == b'add'
+                    and env.get(b'DEVPATH', b'').endswith(b'/' + LED.name.encode())):
+                log('keyboard light added again')
+                if self.hw_fd is None:
+                    self.open_hw()
+                self.level = brightness()
+                self.watch_soon(1)
+            elif subsystem == b'input' and env.get(b'DEVNAME', b'').startswith(b'input/event'):
+                scan = True
+        if scan:
+            self.rescan(devices_only=True)
+        if mains is not None or power:
+            self.power_changed(mains)
+
+    def read_notify(self):
+        """inotify: settings file written, new session file appeared."""
+        config = sessions = False
+        for kind, name in self.notify.read():
+            if kind == 'overflow':
+                config = sessions = True
+            elif kind == 'dropped':
+                self.watching.discard(name)
+                log(f'inotify watch dropped ({name}): falling back to polling')
+                config = sessions = True
+            elif kind == 'config' and name == CONFIG.name:
+                config = True
+            elif (kind == 'session' and name not in self.sessions
+                    and not name.startswith('.') and not name.endswith('.ref')):
+                sessions = True
+        if config:
+            self.reload_config()
+        if sessions:
+            self.check_sessions()
+
+    def reload_config(self):
+        if self.mtime() != self.config_mtime:
+            self.config_mtime = self.mtime()
+            self.config = load_config()
+            log(f'settings: {self.config}')
+
+    def set(self, level):
+        self.ours = (level, time.monotonic())
+        set_brightness(level)
+
+    def read_hw(self):
+        """Re-read the file from the start to re-arm the notification (ENODATA if no value).
+        If the driver was removed (ENODEV) the file is always "ready": close it, rescan reopens it."""
+        try:
+            os.lseek(self.hw_fd, 0, os.SEEK_SET)
+            os.read(self.hw_fd, 16)
+        except OSError as e:
+            if e.errno != errno.ENODATA:
+                log(f'keyboard light notification lost ({e.strerror}); will reopen')
+                os.close(self.hw_fd)
+                self.hw_fd = None
+
+    def watch_level(self, now):
+        """Log whoever turns the light on/off from outside; turn it off again during the daytime
+        enforcement window. Fn+F6 arrives via brightness_hw_changed (select); this read is to
+        see what the desktop or GNOME wrote: briefly after a touch, Fn+F6 and resume, during
+        the daytime enforcement window and once per TICK (see watch_fast)."""
+        level = brightness()
+        if level is None or level == self.level:
+            return
+        ours = self.ours[0] == level and now - self.ours[1] < 3
+        fn = now - self.last_fn < 3
+        if not ours:
+            if level > 0:
+                self.idle_done = False   # someone else turned it on: the idle timer applies again
+            log(f'keyboard light changed: {self.level} → {level} ({"Fn+F6" if fn else "desktop / another app"})')
+            if level > 0 and not fn and now < self.enforce_until:
+                log('daytime: turned off again')
+                self.set(0)
+                level = 0
+            elif fn:
+                self.enforce_until = 0
+        if level > 0:
+            self.last_on = level
+        self.level = level
+
+    def saving(self):
+        """Do the power saving rules (turning off) apply now: on battery, or if "always" is selected."""
+        return not (self.mains and self.config.get('battery_only', True))
+
+    def interval(self):
+        seconds = self.config.get('measure_interval_s', 600)
+        return seconds if self.saving() else max(seconds, AC_MEASURE_MIN)
+
+    def dark(self, value):
+        return value is not None and value < self.config.get('dark_threshold', 20)
+
+    def bright(self, value):
+        # between the threshold and 1.5 times it is a dead zone: keep the light from flapping
+        return value is not None and value > self.config.get('dark_threshold', 20) * 1.5
+
+    def measure_later(self, reason, then=None):
+        """Measure in the background (~1.5 s). The goal is saving power: on when dark, off when
+        bright; manual changes are corrected by ambient light too. If then is given, the result
+        (None: could not measure) is passed to it and no regular correction is made. Not
+        measured during a movie / full screen (no camera light); measured once afterwards."""
+        if self.paused():
+            self.pause_missed = True
+            if then:
+                then(None)   # as if the camera were busy: decide without a measurement
+            return
+        self.pause_missed = False
+        self.measuring = True
+        self.last_measure = time.monotonic()
+
+        def work():
+            try:
+                value = measure_light()
+                if then:
+                    then(value)
+                    return
+                if value is None:
+                    return
+                dark, bright = self.dark(value), self.bright(value)
+                log(f'ambient light {value:.0f} ({"dark" if dark else "bright" if bright else "in between"}) — {reason}')
+                if not self.config.get('dark_turn_on'):
+                    return
+                # level: very dark → bright, dark → dim (see the module docstring)
+                want = 2 if value < self.config.get('very_dark_threshold', 8) else 1
+                with self.lock:
+                    level = brightness()
+                    if dark and level != want and self.saved == 0:
+                        if self.idle_done and not level:
+                            # not turned on while idle (no flashing): turned on at this level on the first touch
+                            self.saved = want
+                            return
+                        log(f'{"very dark" if want == 2 else "dark"}: keyboard light {level} → {want}')
+                        self.set(want)
+                        announce(want, 'very-dark' if want == 2 else 'dark')
+                    elif bright and level and self.saving():
+                        log('bright: keyboard light turned off')
+                        self.set(0)
+                        announce(0, 'bright')
+                        self.saved = 0
+            finally:
+                self.measuring = False
+        threading.Thread(target=work, daemon=True).start()
+
+    def paused(self):
+        """The Huma Control Center extension leaves a pause file during a movie / full screen
+        (only checked when a measurement is due; glob is cheap)."""
+        paused = bool(glob.glob(PAUSE_FILES))
+        if paused and not self.pause:
+            log('movie/full screen: measurement paused')
+        elif self.pause and not paused:
+            log('movie/full screen ended: measurement resumed')
+        self.pause = paused
+        return paused
+
+    def on_input(self):
+        now = time.monotonic()
+        self.watch_soon()
+        wants = self.config.get('dark_turn_on') or self.config.get('screen_auto')
+        if wants and self.pause_missed and not self.measuring:
+            # measurement skipped while paused: now if the movie ended (measure_later skips again if not)
+            self.measure_later('movie/full screen ended')
+        elif (wants and now - self.last_input >= 60 and not self.measuring
+                and now - self.last_measure >= (120 if self.saving() else self.interval())):
+            self.measure_later('back from a break')
+        self.last_input = now
+        self.idle_done = False
+        with self.lock:
+            if self.saved > 0:
+                level, self.saved = self.saved, 0
+                if brightness() == 0:
+                    self.set(level)
+                now = time.monotonic()
+                self.restore_checks = [(now + 0.7, level), (now + 1.5, level)]
+
+    def on_idle(self):
+        # once: if the light is already off (Fn+F6) it is not checked again until the next touch
+        # (every check is a ~60 ms EC read; otherwise the loop would spin)
+        self.idle_done = True
+        with self.lock:
+            level = brightness()
+            if level and self.saved == 0:
+                self.saved = level
+                self.set(0)
+
+    def daytime_off(self, reason):
+        """Turn the light off in daytime; do not turn it back on at a touch (saved = 0). The dark
+        room check measures in the background (so the main loop does not wait up to ~20 s)."""
+        if not self.config.get('off_in_daytime', True) or not daytime(self.config):
+            return
+        if not self.saving():
+            log(f'daytime ({reason}) but on AC: light left alone')
+            return
+        if self.config.get('dark_turn_on'):
+            if self.measuring:
+                self.daytime_pending = reason   # retried once the measurement ends
+                return
+            self.measure_later(reason, then=lambda value: self.daytime_apply(reason, value))
+            return
+        self.daytime_apply(reason, None)
+
+    def daytime_apply(self, reason, value):
+        if self.dark(value):
+            log(f'daytime but the room is dark ({value:.0f}, {reason}): light left alone')
+            return
+        with self.lock:
+            if brightness():
+                log(f'daytime ({reason}): keyboard light turned off')
+                self.set(0)
+                announce(0, 'daytime')
+            self.saved = 0
+            self.restore_checks = []
+            self.enforce_until = time.monotonic() + 30
+
+    def power_changed(self, mains=None):
+        """AC plugged/unplugged: power saving should start right away on battery. mains comes from
+        the uevent; otherwise AC online is read once (_PSR, EC). True if it switched to battery
+        and tried the daytime turn-off."""
+        if mains is None:
+            mains = on_mains()
+        if mains == self.mains:
+            return False
+        self.mains = mains
+        log('plugged in' if mains else 'switched to battery')
+        if mains or not self.config.get('battery_only', True):
+            return False
+        self.last_input = min(self.last_input, time.monotonic())   # the idle timer starts now
+        self.idle_done = False
+        before = self.last_measure
+        self.daytime_off('switched to battery')   # measures by itself in daytime
+        wants = self.config.get('dark_turn_on') or self.config.get('screen_auto')
+        if wants and not self.measuring and self.last_measure == before:
+            self.measure_later('switched to battery')
+        return True
+
+    def check_sessions(self):
+        sessions = user_sessions()
+        if sessions - self.sessions:
+            self.daytime_off('session opened')
+        self.sessions = sessions
+
+    def check_resume(self):
+        """Every loop (two clock reads): on the first wakeup after resume (lid opened, touch,
+        kernel event or TICK at the latest) daytime turn-off and a single light/AC check."""
+        gap = boottime_gap()
+        if gap - self.sleep_gap > 5:
+            self.watch_soon(1)   # GNOME may restore the old level on resume
+            if self.hw_fd is None:
+                self.open_hw()
+            # AC may have changed during sleep (if the event was missed): read once
+            if not (self.uevent is not None and self.power_changed()):
+                self.daytime_off('resumed from sleep')
+        self.sleep_gap = gap
+
+    def daytime_triggers(self):
+        # session opened (polled if inotify is not watching)
+        if 'session' not in self.watching:
+            self.check_sessions()
+        # sunrise
+        day = self.config.get('off_in_daytime', True) and daytime(self.config)
+        if day and self.was_day is False:
+            self.daytime_off('sunrise')
+        self.was_day = day
+
+    def close_device(self, fd):
+        for path, f in list(self.devices.items()):
+            if f == fd:
+                del self.devices[path]
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+
+    def read_events(self, fd):
+        """Read all pending events; True if there was a key press/movement. An unplugged device
+        (ENODEV) is always "ready": it is closed, rescan reopens it when plugged back in."""
+        activity = False
+        while True:
+            try:
+                data = os.read(fd, EVENT.size * 64)
+            except BlockingIOError:
+                return activity
+            except OSError as e:
+                if e.errno in (errno.ENODEV, errno.EBADF, errno.EIO):
+                    self.close_device(fd)
+                return activity
+            for i in range(0, len(data) - EVENT.size + 1, EVENT.size):
+                if EVENT.unpack_from(data, i)[2] in (EV_KEY, EV_REL, EV_ABS):
+                    activity = True
+            if len(data) < EVENT.size * 64:
+                return activity
+
+    def drop_dead(self):
+        """If select failed, drop invalid descriptors (otherwise the loop would spin)."""
+        for fd in list(self.devices.values()):
+            try:
+                os.fstat(fd)
+            except OSError:
+                self.close_device(fd)
+        if self.hw_fd is not None:
+            try:
+                os.fstat(self.hw_fd)
+            except OSError:
+                self.hw_fd = None
+
+    def run(self):
+        self.rescan()
+        # once per boot (not again when the service restarts)
+        if not DAYTIME_MARK.exists():
+            DAYTIME_MARK.touch()
+            self.daytime_off('boot')
+        self.was_day = daytime(self.config)
+        next_scan = time.monotonic() + RESCAN
+        next_tick = time.monotonic() + 2
+        while True:
+            now = time.monotonic()
+            # idle turn-off also on AC: a lit keyboard during a movie is a nuisance, not a saving
+            timeout = self.config.get('idle_timeout_s', 15)
+            deadlines = [next_tick] + [t for t, _ in self.restore_checks]
+            if self.scan_polled():
+                deadlines.append(next_scan)
+            if self.watch_fast(now):
+                deadlines.append(self.next_watch)
+            if now < self.enforce_until:
+                deadlines.append(now + 0.5)
+            # with pending work while measuring, check every half second (do not spin on a past deadline)
+            if self.fn_measure_at:
+                deadlines.append(now + 0.5 if self.measuring else self.fn_measure_at)
+            if self.daytime_pending:
+                deadlines.append(now + 0.5 if self.measuring else now)
+            if timeout > 0 and self.saved == 0 and not self.idle_done:
+                deadlines.append(self.last_input + timeout)
+            # input events are not read right after a touch (so the mouse does not wake us hundreds of times)
+            listen = now >= self.quiet_until
+            if not listen:
+                deadlines.append(self.quiet_until)
+            wait = max(0, min(deadlines) - now)
+            events = [f for f in (self.uevent, self.notify and self.notify.fd) if f is not None]
+            try:
+                hw = [self.hw_fd] if self.hw_fd is not None else []
+                inputs = list(self.devices.values()) if listen else []
+                ready, _, special = select.select(inputs + events, [], hw, wait)
+                if special:
+                    self.read_hw()
+                if special and self.hw_fd is not None:   # if it was closed the driver is gone, not Fn+F6
+                    self.last_fn = time.monotonic()
+                    self.enforce_until = 0
+                    self.watch_soon(0.5)   # log the new level as "Fn+F6" (within 3 s)
+                    # on AC the Fn+F6 choice is kept (the correction measurement is only for saving power)
+                    if self.config.get('dark_turn_on') and self.saving():
+                        self.fn_measure_at = self.last_fn + 3
+            except (OSError, ValueError):
+                ready = []
+                self.drop_dead()
+                self.rescan()
+            if self.uevent is not None and self.uevent in ready:
+                self.read_uevents()
+            if self.notify is not None and self.notify.fd in ready:
+                self.read_notify()
+            activity = False
+            for fd in ready:
+                if fd in inputs and self.read_events(fd):
+                    activity = True
+            self.check_resume()
+            now = time.monotonic()
+            if activity:
+                self.on_input()
+                self.quiet_until = now + INPUT_QUIET
+            due = [c for c in self.restore_checks if c[0] <= now]
+            self.restore_checks = [c for c in self.restore_checks if c[0] > now]
+            for check in due:
+                if brightness() == 0 and now - self.last_input < 5:
+                    self.set(check[1])
+            if (timeout > 0 and self.saved == 0 and not self.idle_done and listen
+                    and now - self.last_input >= timeout):
+                self.on_idle()
+            if self.fn_measure_at and now >= self.fn_measure_at and not self.measuring:
+                self.fn_measure_at = 0
+                self.measure_later('after Fn+F6')
+            if self.daytime_pending and not self.measuring:
+                reason, self.daytime_pending = self.daytime_pending, None
+                self.daytime_off(reason)
+            # regular measurement while someone is at the computer: for the screen brightness, or
+            # to turn the keyboard light on if the room gets dark (e.g. curtains drawn)
+            wants = self.config.get('screen_auto') or self.config.get('dark_turn_on')
+            if (wants and not self.measuring and now - self.last_input < 120
+                    and now - self.last_measure >= self.interval()):
+                self.measure_later('regular measurement')
+            if (now >= next_tick or now < self.enforce_until
+                    or (self.watch_fast(now) and now >= self.next_watch)):
+                self.watch_level(now)
+                self.next_watch = now + 2
+            if now >= next_tick:
+                self.daytime_triggers()
+                if self.uevent is None:
+                    self.power_changed()
+                next_tick = now + (TICK if self.events_ok() else 2)
+                # while events are watched, the device/settings check is only a fallback: together with TICK
+                if not self.scan_polled() and now >= next_scan:
+                    self.rescan()
+                    next_scan = now + TICK
+            if self.scan_polled() and now >= next_scan:
+                self.rescan()
+                next_scan = now + RESCAN
+
+
+def main():
+    if '--validate' in sys.argv:
+        # a broken current file is ignored (otherwise new settings could never be written)
+        try:
+            current = sanitize(json.loads(CONFIG.read_text()), [])
+        except (OSError, ValueError):
+            current = {}
+        try:
+            new = json.load(sys.stdin)
+            if not isinstance(new, dict):
+                raise ValueError('settings must be an object')
+            print(json.dumps(validate({**current, **new})))
+        except CONFIG_ERRORS as e:
+            print(f'Invalid settings: {e}', file=sys.stderr)
+            sys.exit(1)
+        return
+    # the driver may load late at boot or be reloading: not an error (so the restart limit is
+    # not hit); udev starts us once the light is added (71-huma-control-keyboard.rules)
+    if not LED.exists():
+        log('keyboard light not found (is qc71_laptop loaded?); udev will start the service once it appears')
+        sys.exit(0)
+    keyboard = Keyboard()
+
+    def stop(*_):
+        # on shutdown, turn the light back on if we left it off
+        if keyboard.saved and brightness() == 0:
+            set_brightness(keyboard.saved)
+        sys.exit(0)
+    signal.signal(signal.SIGTERM, stop)
+    signal.signal(signal.SIGINT, stop)
+    keyboard.run()
+
+
+if __name__ == '__main__':
+    main()

@@ -1,0 +1,25 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# SPDX-FileCopyrightText: 2026 Gokhan AY <aygkhn@gmail.com>
+[Unit]
+Description=Huma Control Center: automatic profiles, history logging and alerts
+After=systemd-modules-load.service tuned.service
+# do not restart forever if the driver is missing or the config is broken (10 attempts within 5 min)
+StartLimitIntervalSec=300
+StartLimitBurst=10
+
+[Service]
+ExecStart=/usr/local/libexec/huma-control-service
+Restart=on-failure
+RestartSec=5
+# do not write __pycache__ under the root-owned libexec
+Environment=PYTHONDONTWRITEBYTECODE=1
+Nice=10
+ProtectHome=yes
+ProtectSystem=strict
+ReadWritePaths=/sys/devices /run /var/lib/huma-control
+StateDirectory=huma-control
+NoNewPrivileges=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

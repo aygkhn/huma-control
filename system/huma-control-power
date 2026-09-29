@@ -1,0 +1,134 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-2.0-or-later
+# SPDX-FileCopyrightText: 2026 Gokhan AY <aygkhn@gmail.com>
+# Huma Control Center power-saving settings that need root (Power Saving page).
+# Runs as root via pkexec (50-huma-control.rules allows it without a password).
+# Usage:    huma-control-power battery-profile <on|off>
+#           huma-control-power card-reader-sleep <on|off>
+#           huma-control-power card-reader-off <on|off>
+set -euo pipefail
+
+PPD=/etc/tuned/ppd.conf
+# tuned profile used on battery when "Balanced" is selected (same as powersave)
+PROFILE=huma-control-battery
+# card reader sleeps when idle (power management on the USB and SCSI layers)
+SLEEP_RULE=/etc/udev/rules.d/90-huma-control-cardreader-pm.rules
+# card reader completely off: USB authorization is removed (no driver binds, no card
+# polling, the USB3 hub it hangs off can sleep); sorts before the sleep rule
+OFF_RULE=/etc/udev/rules.d/89-huma-control-cardreader-off.rules
+
+# USB SD card readers handled here, as vendor:product. This is the only place that lists
+# them (the udev rules are generated from it). Only the Realtek reader of the Monster
+# Huma H4 (0bda:0316) has been tested; other Realtek USB card readers that never
+# autosuspend by default can be added here.
+CARD_READERS=(0bda:0316)
+
+usage() {
+    echo "Usage: huma-control-power <battery-profile|card-reader-sleep|card-reader-off> <on|off>" >&2
+    exit 2
+}
+
+fail() { echo "$1" >&2; exit 1; }
+
+# sysfs paths of the connected card readers
+reader_devices() {
+    local d id r
+    for d in /sys/bus/usb/devices/*; do
+        [ -r "$d/idVendor" ] || continue
+        id="$(cat "$d/idVendor" 2>/dev/null):$(cat "$d/idProduct" 2>/dev/null)"
+        for r in "${CARD_READERS[@]}"; do
+            [ "$id" = "$r" ] && echo "$d"
+        done
+    done
+    return 0
+}
+
+# Writes a udev rules file atomically (udev only reads *.rules)
+write_rule() {  # file (content on stdin)
+    mkdir -p "${1%/*}"
+    cat > "$1.tmp"
+    chmod 644 "$1.tmp"
+    mv "$1.tmp" "$1"
+}
+
+sleep_rule() {
+    cat <<'EOF'
+# Huma Control Center -> Power Saving: SD card reader sleeps when idle.
+# By default the reader never sleeps: power management is off on the USB and SCSI disk
+# layers and the kernel polls for a card every 2 s. Here it sleeps while no card is
+# inserted; a new card is detected within 10 s. After each poll it sleeps again within
+# 0.5 s (with 2 s the reader and its USB hub were awake 47% of the time, with 0.5 s 12%;
+# measured).
+EOF
+    local r v p
+    for r in "${CARD_READERS[@]}"; do
+        v=${r%%:*} p=${r##*:}
+        echo "ACTION==\"add\", SUBSYSTEM==\"usb\", ATTR{idVendor}==\"$v\", ATTR{idProduct}==\"$p\", TEST==\"power/control\", ATTR{power/autosuspend_delay_ms}=\"500\", ATTR{power/control}=\"auto\""
+        echo "ACTION==\"add\", SUBSYSTEM==\"scsi\", ENV{DEVTYPE}==\"scsi_device\", ATTRS{idVendor}==\"$v\", ATTRS{idProduct}==\"$p\", ATTR{power/autosuspend_delay_ms}=\"500\", ATTR{power/control}=\"auto\""
+        echo "ACTION==\"add\", SUBSYSTEM==\"block\", ENV{DEVTYPE}==\"disk\", ATTRS{idVendor}==\"$v\", ATTRS{idProduct}==\"$p\", ATTR{events_poll_msecs}=\"10000\""
+    done
+}
+
+off_rule() {
+    echo "# Huma Control Center -> Power Saving: SD card reader off (choose \"On\" there to turn it back on)"
+    local r
+    for r in "${CARD_READERS[@]}"; do
+        echo "ACTION==\"add\", SUBSYSTEM==\"usb\", ATTR{idVendor}==\"${r%%:*}\", ATTR{idProduct}==\"${r##*:}\", ATTR{authorized}=\"0\""
+    done
+}
+
+[ $# -eq 2 ] || usage
+case "$2" in on|off) ;; *) usage ;; esac
+case "$1:$2" in
+    # tuned-ppd maps the PPD profile "balanced" to this profile while on battery
+    battery-profile:on)
+        [ -r "/etc/tuned/profiles/$PROFILE/tuned.conf" ] || fail "The $PROFILE tuned profile is not installed"
+        [ -w "$PPD" ] || fail "$PPD not found (is tuned-ppd installed?)"
+        sed -i "s/^balanced=balanced-battery\$/balanced=$PROFILE/" "$PPD"
+        grep -qx "balanced=$PROFILE" "$PPD" || fail "$PPD has no battery mapping for balanced"
+        systemctl try-restart tuned-ppd
+        ;;
+    battery-profile:off)
+        [ -w "$PPD" ] || exit 0
+        sed -i "s/^balanced=$PROFILE\$/balanced=balanced-battery/" "$PPD"
+        systemctl try-restart tuned-ppd
+        ;;
+    card-reader-sleep:on)
+        sleep_rule | write_rule "$SLEEP_RULE"
+        udevadm control --reload
+        # re-process only the reader and the SCSI/disk devices below it
+        for d in $(reader_devices); do
+            udevadm trigger --action=add --parent-match="$d"
+        done
+        ;;
+    card-reader-sleep:off)
+        rm -f "$SLEEP_RULE"
+        udevadm control --reload
+        # back to the kernel defaults: always on, the card is polled every 2 s
+        for d in $(reader_devices); do
+            echo on > "$d/power/control"
+            while read -r sd; do
+                echo -1 > "$sd/power/autosuspend_delay_ms"
+                echo on > "$sd/power/control"
+                for b in "$sd"/block/*; do
+                    [ -e "$b/events_poll_msecs" ] && echo -1 > "$b/events_poll_msecs"
+                done
+            done < <(find "$d/" -maxdepth 5 -type d -regextype posix-extended -regex '.*/[0-9]+:[0-9]+:[0-9]+:[0-9]+')
+        done
+        ;;
+    card-reader-off:on)
+        off_rule | write_rule "$OFF_RULE"
+        udevadm control --reload
+        for d in $(reader_devices); do
+            echo 0 > "$d/authorized"
+        done
+        ;;
+    card-reader-off:off)
+        rm -f "$OFF_RULE"
+        udevadm control --reload
+        # once authorized again the device is re-enumerated; the sleep rule (if on) applies again
+        for d in $(reader_devices); do
+            echo 1 > "$d/authorized"
+        done
+        ;;
+esac

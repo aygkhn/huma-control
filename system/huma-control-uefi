@@ -1,0 +1,100 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: GPL-2.0-or-later
+# SPDX-FileCopyrightText: 2026 Gokhan AY <aygkhn@gmail.com>
+"""Huma Control Center: the "power on with AC" (AC Recover) setting stored in UEFI.
+
+Monster Control Center keeps this setting in byte 95 of the UniWillVariable UEFI
+variable (see docs/ec-register-map.md, "UEFI variable"). Only that byte is changed; before
+writing, the variable is validated and backed up, after writing it is read back and
+the backup is restored on any mismatch. Takes effect on the next boot.
+
+Runs as root via pkexec; polkit asks for admin authentication (50-huma-control.rules).
+Usage: huma-control-uefi ac-recover <on|off>
+
+Backups in /var/lib/huma-control: UniWillVariable.first (the variable before the first
+change, never overwritten) and UniWillVariable.backup (before the latest change).
+"""
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+VAR = Path('/sys/firmware/efi/efivars/UniWillVariable-9f33f85c-13ca-4fd1-9c4a-96217722c593')
+BACKUP_DIR = Path('/var/lib/huma-control')
+USB_POWER = Path('/sys/devices/platform/qc71_laptop/usb_powershare')
+SIZE = 180            # data size; the file starts with 4 attribute bytes
+ATTR = bytes([7, 0, 0, 0])
+PROJECT_ID, AC_SUPPORT, AC_STATUS = 6, 94, 95
+
+
+def fail(text):
+    print(text, file=sys.stderr)
+    sys.exit(1)
+
+
+def read_var():
+    raw = VAR.read_bytes()
+    if len(raw) != 4 + SIZE or raw[:4] != ATTR:
+        fail('UEFI variable is not in the expected format; left untouched')
+    data = raw[4:]
+    if data[PROJECT_ID] != 0x13 or data[AC_SUPPORT] != 1:
+        fail('This device does not support power on with AC')
+    return raw
+
+
+def chattr(flag):
+    subprocess.run(['chattr', flag, str(VAR)], check=True)
+
+
+def write_var(raw):
+    chattr('-i')
+    try:
+        fd = os.open(VAR, os.O_WRONLY)
+        try:
+            # efivarfs handles a single write() call as a single SetVariable
+            if os.write(fd, raw) != len(raw):
+                raise OSError('short write')
+        finally:
+            os.close(fd)
+    finally:
+        chattr('+i')
+
+
+def set_ac_recover(on):
+    raw = read_var()
+    if raw[4 + AC_STATUS] == on:
+        return
+    # cannot be on together with USB power (the Control Center UI behaves the same)
+    if on and USB_POWER.exists() and USB_POWER.read_text().strip() == '1':
+        fail('Turn off "USB power while off" first')
+
+    BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+    first = BACKUP_DIR / 'UniWillVariable.first'
+    if not first.exists():
+        first.write_bytes(raw)
+    (BACKUP_DIR / 'UniWillVariable.backup').write_bytes(raw)
+
+    new = bytearray(raw)
+    new[4 + AC_STATUS] = 1 if on else 0
+    write_var(bytes(new))
+
+    after = VAR.read_bytes()
+    if after[4:] != bytes(new[4:]):
+        write_var(raw)
+        fail('Could not verify the UEFI variable; the previous value was restored')
+
+
+def main():
+    if len(sys.argv) != 3 or sys.argv[1] != 'ac-recover' or sys.argv[2] not in ('on', 'off'):
+        print('Usage: huma-control-uefi ac-recover <on|off>', file=sys.stderr)
+        sys.exit(2)
+    if not VAR.exists():
+        fail('Power on with AC setting not found on this device')
+    try:
+        set_ac_recover(sys.argv[2] == 'on')
+    except (OSError, subprocess.CalledProcessError) as e:
+        fail(f'Could not write the UEFI variable: {e}')
+
+
+if __name__ == '__main__':
+    main()

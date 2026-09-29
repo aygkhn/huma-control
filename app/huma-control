@@ -1,0 +1,3048 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-2.0-or-later
+# SPDX-FileCopyrightText: 2026 Gokhan AY <aygkhn@gmail.com>
+"""Huma Control Center — performance, fan, keyboard backlight and power settings for the Monster Huma H4.
+
+Hardware is read through the qc71_laptop driver (huma-control/driver). Writes that
+need root go through pkexec to the huma-control-helper and huma-control-power helpers
+(polkit rules don't ask for a password). The keyboard backlight is driven via UPower;
+turning it off when idle and starting it off in daytime is handled by the
+huma-control-keyboard system service (settings in /etc/huma-control/keyboard.json).
+
+Reading the driver files goes to the embedded controller (EC) over WMI, so hardware
+reads happen in the background and the UI only shows the results.
+"""
+import gettext
+import json
+import locale
+import math
+import re
+import signal
+import os
+import subprocess
+import sys
+import threading
+import time
+from collections import deque
+from datetime import datetime
+from pathlib import Path
+
+import gi
+
+gi.require_version('Gtk', '4.0')
+gi.require_version('Adw', '1')
+from gi.repository import Adw, Gdk, Gio, GLib, GObject, Gtk, Pango  # noqa: E402
+
+try:
+    gi.require_version('GUdev', '1.0')
+    from gi.repository import GUdev  # noqa: E402
+except (ValueError, ImportError):
+    GUdev = None
+try:  # DesktopAppInfo lives in GioUnix since GLib 2.86; in Gio on older versions
+    gi.require_version('GioUnix', '2.0')
+    from gi.repository import GioUnix  # noqa: E402
+    DesktopAppInfo = GioUnix.DesktopAppInfo
+except (ValueError, ImportError, AttributeError):
+    DesktopAppInfo = Gio.DesktopAppInfo
+
+APP_ID = 'io.github.aygkhn.HumaControl'
+# product name: not translated
+APP_NAME = 'Huma Control Center'
+HERE = Path(__file__).resolve().parent
+
+# ---------------------------------------------------------------- translation (gettext)
+# Source strings are English; translations live in app/po. The compiled .mo file is
+# looked up in app/locale when running from the repo, ~/.local/share/locale when installed (install.sh).
+GETTEXT_DOMAIN = 'huma-control'
+
+
+def _locale_dir():
+    for base in (HERE / 'locale', Path(GLib.get_user_data_dir()) / 'locale'):
+        if any(base.glob(f'*/LC_MESSAGES/{GETTEXT_DOMAIN}.mo')):
+            return str(base)
+    return None   # system directory (/usr/share/locale)
+
+
+# The app's own language choice (About page): {"language": code}, empty means the system language
+APP_SETTINGS = Path(GLib.get_user_config_dir()) / 'huma-control' / 'app.json'
+LANGUAGES = [('', None), ('en', 'English'), ('tr', 'Türkçe')]   # names in their own language
+
+
+def read_json(path):
+    """JSON file; None if it cannot be read."""
+    try:
+        return json.loads(Path(path).read_text())
+    except (OSError, ValueError):
+        return None
+
+
+def app_language():
+    try:
+        value = read_json(APP_SETTINGS).get('language', '')
+    except AttributeError:
+        return ''
+    return value if value in dict(LANGUAGES) else ''
+
+
+if app_language():
+    os.environ['LANGUAGE'] = app_language()
+try:
+    locale.setlocale(locale.LC_ALL, '')
+except locale.Error:
+    pass
+gettext.bindtextdomain(GETTEXT_DOMAIN, _locale_dir())
+gettext.textdomain(GETTEXT_DOMAIN)
+_ = gettext.gettext
+ngettext = gettext.ngettext
+pgettext = gettext.pgettext
+
+# number format comes from the language (Turkish: decimal comma, thousands dot, percent sign first)
+# Translators: decimal separator for numbers like 12.5 W
+DECIMAL_SEP = pgettext('decimal separator', '.')
+# Translators: thousands separator for fan speeds like 3,200 rpm
+THOUSANDS_SEP = pgettext('thousands separator', ',')
+
+
+def dec(value, digits=1):
+    """Decimal number with the language's decimal separator."""
+    return f'{value:.{digits}f}'.replace('.', DECIMAL_SEP)
+
+
+def pct(value):
+    """Percentage: 40% in English, %40 in Turkish."""
+    # Translators: percentage; Turkish puts the sign first (%{value})
+    return _('{value}%').format(value=value)
+
+
+def duration_label(seconds):
+    if seconds < 60:
+        return ngettext('{n} second', '{n} seconds', seconds).format(n=seconds)
+    if seconds < 3600:
+        return ngettext('{n} minute', '{n} minutes', seconds // 60).format(n=seconds // 60)
+    return ngettext('{n} hour', '{n} hours', seconds // 3600).format(n=seconds // 3600)
+
+
+def days_label(days):
+    return ngettext('{n} day', '{n} days', days).format(n=days)
+
+QC71 = Path('/sys/devices/platform/qc71_laptop')
+HELPER = '/usr/local/libexec/huma-control-helper'
+UEFI_HELPER = '/usr/local/libexec/huma-control-uefi'
+UNIWILL_VAR = Path('/sys/firmware/efi/efivars/UniWillVariable-9f33f85c-13ca-4fd1-9c4a-96217722c593')
+BATTERY = Path('/sys/class/power_supply/BAT0')
+POWER_HELPER = '/usr/local/libexec/huma-control-power'
+CARD_READER_RULE = Path('/etc/udev/rules.d/90-huma-control-cardreader-pm.rules')
+CARD_READER_OFF = Path('/etc/udev/rules.d/89-huma-control-cardreader-off.rules')
+CARD_MODES = [
+    ('off', _('Off'), _("If you don't use cards: the reader never runs or polls for a card, and its USB link "
+                           'sleeps too (most efficient). Choose "On" when you want to insert a card')),
+    ('sleep', _('On, sleeps when idle'), _('An inserted card shows up within 10 seconds')),
+    ('on', _('Always on'), _('Kernel default: the reader never sleeps and polls for a card every 2 seconds')),
+]
+HISTORY = 90  # graph: 3 minutes at 2 s intervals
+# the timeouts from Monster Control Center (10 s - 3 h, Never) plus 15 s
+TIMEOUTS = [(0, _('Never'))] + [(s, duration_label(s)) for s in (10, 15, 30, 60, 120, 300, 600, 1800, 3600, 10800)]
+KBD_LEVELS = [pgettext('keyboard backlight', 'Off'), pgettext('keyboard backlight', 'Dim'),
+              pgettext('keyboard backlight', 'Bright')]
+CHARGE_PROFILES = [
+    ('high_capacity', _('High capacity'), _('Charges the battery fully; longest runtime')),
+    ('balanced', _('Balanced'), _('A balance between capacity and battery lifespan')),
+    ('stationary', _('Stationary'), _('Mostly plugged in; protects the battery by charging it less')),
+]
+# Monster Control Center's Performance page; PL1 = the CPU's sustained power limit
+PERF_MODES = [('balanced', _('Balanced')), ('quiet', _('Quiet (20 dB)'))]
+PERF_LEVELS = {
+    'balanced': [('low', _('Low'), '30 W'), ('medium', _('Medium'), '32 W'),
+                 ('high', _('High'), _('38 W, 35 W on battery'))],
+    'quiet': [('20db', '20 dB', '15 W'), ('30db', '30 dB', '25 W'), ('40db', '40 dB', '35 W')],
+}
+# Fan curve presets: (minimum duty %, [(temperature °C, duty %), ...]); the last point is 100%
+FAN_PRESETS = {
+    'quiet': (0, [(58, 20), (66, 35), (74, 55), (82, 100)]),
+    'balanced': (0, [(54, 25), (62, 40), (70, 60), (78, 100)]),
+    'cool': (20, [(45, 30), (55, 50), (65, 75), (75, 100)]),
+}
+FAN_PRESET_NAMES = {'quiet': _('Quiet'), 'balanced': _('Balanced'), 'cool': _('Cool')}
+PROFILE_NAMES = [
+    ('balanced-low', _('Balanced · Low')), ('balanced-medium', _('Balanced · Medium')),
+    ('balanced-high', _('Balanced · High')),
+    ('quiet-20db', _('Quiet · 20 dB')), ('quiet-30db', _('Quiet · 30 dB')), ('quiet-40db', _('Quiet · 40 dB')),
+]
+AUTO_CONFIG = Path('/etc/huma-control/automation.json')
+
+LIGHT_TOOL = '/usr/local/libexec/huma-control-light'
+LIGHT_STATE = Path('/run/huma-control/light.json')             # {"value": reading, "time": ISO time}
+# Screen level method (same as the extension): level names and default percentages
+SCREEN_STAGES = [_('Very dark'), _('Dark'), _('Bright'), _('Very bright'), _('Sunlight')]
+SCREEN_PERCENTS = [15, 30, 60, 80, 100]
+
+
+def stage_anchors(dark, very_dark, sun):
+    """Measurement values of the levels (stageAnchors in the extension)."""
+    dark = min(dark, 150)
+    return [min(very_dark, dark), dark, min(dark * 1.5, 254), 255, max(sun, 256)]
+
+
+def nearest_stage(value, anchors):
+    level = lambda v: math.log1p(max(v, 0))
+    return min(range(len(anchors)), key=lambda i: abs(level(value) - level(anchors[i])))
+
+
+def screen_percent():
+    """Current brightness of the laptop panel (%)."""
+    for dev in Path('/sys/class/backlight').glob('*'):
+        try:
+            return round(100 * int((dev / 'brightness').read_text()) / int((dev / 'max_brightness').read_text()))
+        except (OSError, ValueError, ZeroDivisionError):
+            continue
+    return None
+
+
+FACE_TOOL = '/usr/local/libexec/huma-control-presence'
+USAGE_FILE = Path('/var/lib/huma-control/battery-usage.json')
+USAGE_NAMES = {'screen': (_('Screen'), 'video-display-symbolic'), 'system': (_('Idle / system'), 'computer-symbolic'),
+               'desktop': (_('Desktop (GNOME)'), 'user-desktop-symbolic')}
+
+APP_SLICE = Path(f'/sys/fs/cgroup/user.slice/user-{os.getuid()}.slice/user@{os.getuid()}.service/app.slice')
+
+
+def usage_pids(key):
+    """Currently running processes for a battery usage key (only the user's own processes)."""
+    kind, _sep, ident = key.partition(':')
+    pids = []
+    if kind == 'app' and APP_SLICE.is_dir():
+        for scope in APP_SLICE.iterdir():
+            name = re.sub(r'\\x([0-9a-f]{2})', lambda m: chr(int(m.group(1), 16)), scope.name)
+            m = (re.match(r'app-(?:gnome|flatpak)-(.+?)-\d+\.scope$', name) or
+                 re.match(r'app-(.+?)(?:@[^.]*)?\.(?:scope|service)$', name) or
+                 re.match(r'dbus-:[\d.]+-(.+?)@\d+\.service$', name))
+            if m and m.group(1) == ident:
+                try:
+                    pids += (scope / 'cgroup.procs').read_text().split()
+                except OSError:
+                    pass
+    elif kind == 'terminal':
+        for pid in filter(str.isdigit, os.listdir('/proc')):
+            try:
+                if os.stat(f'/proc/{pid}').st_uid != os.getuid():
+                    continue
+                stat = Path(f'/proc/{pid}/stat').read_text()
+                if stat[stat.index('(') + 1:stat.rindex(')')] == ident and \
+                        '-spawn-' in Path(f'/proc/{pid}/cgroup').read_text():
+                    pids.append(pid)
+            except (OSError, ValueError):
+                continue
+    return pids
+
+
+def process_info(pid):
+    """(name, CPU time in s, memory in MB, command) or None."""
+    try:
+        stat = Path(f'/proc/{pid}/stat').read_text()
+        fields = stat[stat.rindex(')') + 2:].split()
+        cpu = (int(fields[11]) + int(fields[12])) / os.sysconf('SC_CLK_TCK')
+        rss = next((int(line.split()[1]) for line in Path(f'/proc/{pid}/status').read_text().splitlines()
+                    if line.startswith('VmRSS:')), 0) / 1024
+        cmd = Path(f'/proc/{pid}/cmdline').read_bytes().replace(b'\0', b' ').decode(errors='replace').strip()
+        return stat[stat.index('(') + 1:stat.rindex(')')], cpu, rss, cmd
+    except (OSError, ValueError, IndexError):
+        return None
+
+
+def package_of(key, pids):
+    """(description, GNOME Software argument) — where it was installed from."""
+    kind, _sep, ident = key.partition(':')
+    if kind == 'app' and subprocess.run(['flatpak', 'info', ident], capture_output=True).returncode == 0:
+        return f'Flatpak: {ident}', f'--details={ident}'
+    for pid in pids:
+        try:
+            exe = os.readlink(f'/proc/{pid}/exe')
+        except OSError:
+            continue
+        r = subprocess.run(['rpm', '-qf', '--qf', '%{NAME}', exe], capture_output=True, text=True)
+        if r.returncode == 0 and r.stdout.strip():
+            return (_('Package: {name} (system package, dnf)').format(name=r.stdout.strip()),
+                    f'--details-pkg={r.stdout.strip()}')
+        return _('Not installed from a package: {path}').format(path=exe), None
+    # if not running, use the package of the .desktop file
+    try:
+        info = DesktopAppInfo.new(ident + '.desktop') if kind == 'app' else None
+    except TypeError:
+        info = None
+    if info and info.get_filename():
+        r = subprocess.run(['rpm', '-qf', '--qf', '%{NAME}', info.get_filename()], capture_output=True, text=True)
+        if r.returncode == 0 and r.stdout.strip():
+            return (_('Package: {name} (system package, dnf)').format(name=r.stdout.strip()),
+                    f'--details-pkg={r.stdout.strip()}')
+    return _('No package information found'), None
+
+
+def usage_entry(key):
+    """Name and icon for a battery usage key (apps from their .desktop file)."""
+    if key in USAGE_NAMES:
+        name, icon = USAGE_NAMES[key]
+        return name, Gio.ThemedIcon.new(icon), True
+    kind, _sep, ident = key.partition(':')
+    if kind == 'terminal':
+        return _('Terminal: {name}').format(name=ident), Gio.ThemedIcon.new('utilities-terminal-symbolic'), True
+    info = None
+    for candidate in (ident, ident.lower()):
+        try:
+            info = DesktopAppInfo.new(candidate + '.desktop')
+        except TypeError:
+            info = None
+        if info:
+            break
+    if info:
+        return info.get_name(), info.get_icon() or Gio.ThemedIcon.new('application-x-executable-symbolic'), True
+    return ident, Gio.ThemedIcon.new('application-x-executable-symbolic'), False
+# the extension's last automatic brightness decision (informational)
+BRIGHTNESS_STATE = Path(os.environ.get('XDG_RUNTIME_DIR', f'/run/user/{os.getuid()}')) / 'huma-control-brightness.json'
+PRESENCE_DELAYS = [(s, duration_label(s)) for s in (30, 60, 120, 180)]
+
+
+def has_ir_camera():
+    for dev in Path('/sys/class/video4linux').glob('video*'):
+        try:
+            if 'IR' in (dev / 'name').read_text().split(':')[-1]:
+                return True
+        except OSError:
+            continue
+    return False
+
+
+# measurement interval (s, label); short ones are for testing: the camera light flashes at each measurement
+# Translators: {time} is a duration like "5 seconds"; short intervals are for testing only
+LIGHT_INTERVALS = [(s, _('{time} (test)').format(time=duration_label(s))) for s in (5, 15, 30)] + \
+                  [(s, duration_label(s)) for s in (60, 300, 600, 900, 1800)]
+AUTO_STATE = Path('/run/huma-control/automation-state.json')
+HISTORY_FILE = Path('/var/lib/huma-control/history.csv')
+ALERTS_FILE = Path('/run/huma-control/alerts.json')
+CHARGE_PRIORITIES = [
+    ('charge_battery', _('Battery charging'), _('When plugged in, the battery charges first')),
+    ('performance', _('Performance'), _('When plugged in, power goes to the CPU first and the battery charges more slowly')),
+]
+
+
+# The root services write English texts plus stable codes; they are shown in the user's language.
+# Unknown codes are shown as written.
+ALERT_TEXTS = {
+    'overheat': (_('CPU is overheating'),
+                 # Translators: {temp} is the CPU temperature in °C
+                 _('CPU at {temp} °C. Make sure the air vents are not blocked; Fan Boost can be turned on from the '
+                   'Performance page.')),
+    'fan-fault': (_('Fan failure'), _('The controller reports a fan failure (the fan is not spinning or is stuck).')),
+    'fan-stuck': (_('Fan is not spinning'), _('The fan is stopped although the CPU is at {temp} °C.')),
+    'battery-health': (_('Battery health has dropped'),
+                       # Translators: {percent} is already formatted as a percentage (e.g. 78%)
+                       _('When full, the battery holds {full_wh} Wh (design {design_wh} Wh, {percent}). "Balanced" or '
+                         '"Stationary" in Battery Care protects the battery.')),
+}
+
+
+def alert_text(alert):
+    """Title and text of a service alert."""
+    known = ALERT_TEXTS.get(alert.get('code'))
+    data = alert.get('data')
+    if known and isinstance(data, dict):
+        values = dict(data)
+        for key in ('full_wh', 'design_wh'):
+            if isinstance(values.get(key), (int, float)):
+                values[key] = dec(values[key])
+        if 'percent' in values:
+            values['percent'] = pct(values['percent'])
+        try:
+            return known[0], known[1].format(**values)
+        except (KeyError, IndexError, ValueError):
+            pass
+    return alert.get('title', ''), alert.get('text', '')
+
+
+# Translators: why an automatic performance profile is active; {name} is the rule's app name
+AUTO_REASONS = {'app': _('app: {name}'), 'night': _('night hours'), 'ac': _('on AC'), 'battery': _('on battery')}
+
+
+def auto_reason(state):
+    """Why the automatic profile is active (the service's text if the code is unknown)."""
+    template = AUTO_REASONS.get(state.get('reason_code'))
+    data = state.get('data')
+    if template:
+        try:
+            return template.format(**(data if isinstance(data, dict) else {}))
+        except (KeyError, IndexError, ValueError):
+            pass
+    return state.get('reason') or ''
+
+
+# error texts written by the helpers (stderr), translated by exact match
+HELPER_ERRORS = {
+    'Another setting is being applied, try again later': _('Another setting is being applied, try again later'),
+    'The qc71_laptop driver is not loaded': _('The qc71_laptop driver is not loaded'),
+    'This feature is not supported on this device': _('This feature is not supported on this device'),
+    'The controller did not accept the setting': _('The controller did not accept the setting'),
+    'Turn off "Power on when plugged in" first': _('Turn off "Power on when plugged in" first'),
+    'UEFI variable is not in the expected format; left untouched':
+        _('UEFI variable is not in the expected format; left untouched'),
+    'This device does not support power on with AC': _('This device does not support power on with AC'),
+    'Turn off "USB power while off" first': _('Turn off "USB power while off" first'),
+    'Could not verify the UEFI variable; the previous value was restored':
+        _('Could not verify the UEFI variable; the previous value was restored'),
+    'Power on with AC setting not found on this device': _('Power on with AC setting not found on this device'),
+    'camera not found': _('camera not found'),
+    'camera is open in another application': _('camera is open in another application'),
+    'could not get an image from the camera': _('could not get an image from the camera'),
+    'could not get an image from the IR camera': _('could not get an image from the IR camera'),
+}
+# Translators: {error} is a more detailed error message
+HELPER_ERROR_PREFIXES = [('Invalid settings: ', _('Invalid settings: {error}')),
+                         ('measurement failed: ', _('measurement failed: {error}')),
+                         ('check failed: ', _('check failed: {error}'))]
+
+
+def helper_error(text):
+    """A helper's error text in the user's language (unknown texts as written), line by line."""
+    def one(line):
+        line = line.strip()
+        if line in HELPER_ERRORS:
+            return HELPER_ERRORS[line]
+        for prefix, template in HELPER_ERROR_PREFIXES:
+            if line.startswith(prefix):
+                return template.format(error=one(line[len(prefix):]))
+        return line
+    return '\n'.join(one(line) for line in text.strip().splitlines())
+
+CSS = """
+.stat-card { padding: 18px; border-radius: 16px; }
+.stat-value { font-size: 30px; font-weight: 800; font-feature-settings: "tnum"; }
+.stat-unit { font-size: 15px; font-weight: 600; opacity: .6; }
+.stat-title { font-weight: 600; opacity: .7; }
+.stat-sub { font-size: 12px; opacity: .6; }
+.hero { padding: 22px 24px; border-radius: 20px;
+        background: linear-gradient(135deg, #1b1f3a, #3a1d5c); color: white; }
+.hero .dim-label { color: rgba(255,255,255,.72); }
+.hero-title { font-size: 22px; font-weight: 800; }
+.chip { padding: 3px 10px; border-radius: 99px; font-size: 12px; font-weight: 600;
+        background: rgba(255,255,255,.14); color: white; }
+.graph-card { padding: 16px; border-radius: 16px; }
+.legend-dot { min-width: 10px; min-height: 10px; border-radius: 5px; }
+.legend-accent { background: var(--accent-bg-color); }
+.legend-fan { background: #ff8f3d; }
+
+/* colored icon badges (GNOME Settings style) */
+.badge { border-radius: 9px; padding: 6px; color: white; }
+.badge.blue { background: #3584e4; }
+.badge.green { background: #2ec27e; }
+.badge.orange { background: #ff7800; }
+.badge.red { background: #e01b24; }
+.badge.purple { background: #9141ac; }
+.badge.teal { background: #1c9aa8; }
+.badge.yellow { background: #e5a50a; }
+.badge.pink { background: #d6457d; }
+.badge.slate { background: #5e6a7a; }
+
+/* overview cards */
+.stat-card.tint-orange { background: alpha(#ff7800, .13); }
+.stat-card.tint-teal { background: alpha(#1c9aa8, .15); }
+.stat-card.tint-yellow { background: alpha(#e5a50a, .15); }
+.stat-card.tint-green { background: alpha(#2ec27e, .15); }
+.tint-orange .stat-icon { color: #ff7800; }
+.tint-teal .stat-icon { color: #1c9aa8; }
+.tint-yellow .stat-icon { color: #e5a50a; }
+.tint-green .stat-icon { color: #2ec27e; }
+.level-good { color: #26a269; }
+.level-warn { color: #c88800; }
+.level-bad { color: #e01b24; }
+
+/* performance mode banner */
+.mode-banner { padding: 18px 22px; border-radius: 18px; color: white; }
+.mode-banner .dim-label { color: rgba(255,255,255,.78); }
+.mode-banner.balanced { background: linear-gradient(135deg, #1c71d8, #613583); }
+.mode-banner.quiet { background: linear-gradient(135deg, #1c9aa8, #26a269); }
+.mode-banner.high { background: linear-gradient(135deg, #e66100, #c01c28); }
+.mode-banner.unknown { background: linear-gradient(135deg, #5e5c64, #3d3846); }
+.mode-title { font-size: 20px; font-weight: 800; }
+"""
+
+
+# ---------------------------------------------------------------- hardware reading
+
+def read(path, default=None):
+    try:
+        return Path(path).read_text().strip()
+    except OSError:
+        return default
+
+
+def hwmon(name):
+    base = Path('/sys/class/hwmon')
+    for h in sorted(base.iterdir()) if base.exists() else []:
+        if read(h / 'name') == name:
+            return h
+    return None
+
+
+def cpu_temp():
+    h = hwmon('coretemp') or hwmon('k10temp')
+    value = read(h / 'temp1_input') if h else None
+    return int(value) / 1000 if value else None
+
+
+def fan_state(boost=None):
+    fan, pwm = hwmon('qc71_laptop.hwmon.fan'), hwmon('qc71_laptop.hwmon.pwm')
+    if not fan or not pwm:
+        return None
+    if boost is None:   # cache not filled yet: read from the driver (pwm1_enable also changes with a custom curve)
+        boost = read(QC71 / 'fan_boost')
+    boost = boost == '1'
+    rpm, temp = int(read(fan / 'fan1_input', '0')), int(read(fan / 'temp1_input', '0')) / 1000
+    # the controller occasionally returns garbage: keep the previous value
+    last = fan_state.last
+    rpm = last.get('rpm') if rpm > 7000 else rpm
+    temp = last.get('temp') if temp > 110 else temp
+    fan_state.last = {'rpm': rpm, 'temp': temp}
+    return {
+        'rpm': rpm,
+        'temp': temp,
+        # Fan Boost: the controller runs the fan at full speed (0x0751 bit 6)
+        'mode': 'max' if boost else 'auto',
+    }
+
+
+fan_state.last = {}
+
+
+def ac_recover():
+    """The power-on-AC setting in UEFI: True/False, or None if unsupported."""
+    try:
+        data = UNIWILL_VAR.read_bytes()[4:]
+    except OSError:
+        return None
+    if len(data) != 180 or data[6] != 0x13 or data[94] != 1:
+        return None
+    return data[95] == 1
+
+
+def battery_info():
+    if not BATTERY.exists():
+        return None
+    num = lambda name: int(read(BATTERY / name, '0') or 0)
+    volts = num('voltage_min_design') / 1e6
+    full, design = num('charge_full') / 1e6 * volts, num('charge_full_design') / 1e6 * volts
+    if not design:
+        full, design = num('energy_full') / 1e6, num('energy_full_design') / 1e6
+    return {'full': full, 'design': design, 'cycles': num('cycle_count'),
+            'tech': read(BATTERY / 'technology', ''), 'status': read(BATTERY / 'status', '')}
+
+
+def device_info():
+    dmi = lambda name: read(f'/sys/class/dmi/id/{name}', '') or '—'
+    cpu = next((l.split(':', 1)[1].strip() for l in (read('/proc/cpuinfo', '') or '').splitlines()
+                if l.startswith('model name')), '—')
+    mem = next((int(l.split()[1]) for l in (read('/proc/meminfo', '') or '').splitlines()
+                if l.startswith('MemTotal')), 0)
+    project = read(QC71 / 'project_id')
+    return [
+        (_('Model'), f'{dmi("sys_vendor").title()} {dmi("product_name")}'),
+        (_('Motherboard'), dmi('board_name')),
+        ('BIOS', f'{dmi("bios_version")} ({dmi("bios_date")})'),
+        (_('Embedded controller (EC) project ID'),
+         f'{project} (Uniwill PH4TUX1)' if project == '0x13' else project or '—'),
+        (_('Processor'), cpu),
+        (_('Memory'), f'{dec(mem / 1024 / 1024)} GB' if mem else '—'),
+        (_('Kernel'), os.uname().release),
+        (_('qc71_laptop driver'),
+         read('/sys/module/qc71_laptop/version') or (_('loaded') if QC71.exists() else _('not loaded'))),
+    ]
+
+
+KBD_CONFIG = Path('/etc/huma-control/keyboard.json')
+
+def gnome_location():
+    """The last location GNOME stored for Night Light."""
+    try:
+        lat, lon = Gio.Settings.new('org.gnome.settings-daemon.plugins.color').get_value(
+            'night-light-last-coordinates').unpack()
+    except Exception:
+        return None
+    # GNOME stores (91, 181) if no location was ever obtained
+    if not (-90 <= lat <= 90 and -180 <= lon <= 180) or not (lat or lon):
+        return None
+    return round(lat, 4), round(lon, 4)
+
+
+def kbd_config():
+    """Settings of the keyboard backlight service (huma-control-keyboard)."""
+    config = {'idle_timeout_s': 15, 'off_in_daytime': True, 'location': None}
+    data = read_json(KBD_CONFIG)
+    if isinstance(data, dict):
+        config |= data
+    return config
+
+
+def sun_times(where=None):
+    """Today's sunrise and sunset for the location (local time), same calculation as the keyboard service."""
+    from datetime import timedelta, timezone
+    where = where or kbd_config().get('location') or gnome_location()
+    if not where:
+        return None
+    lat, lon = where
+    now = datetime.now(timezone.utc)
+    g = 2 * math.pi / 365 * (now.timetuple().tm_yday - 1)
+    eqtime = 229.18 * (0.000075 + 0.001868 * math.cos(g) - 0.032077 * math.sin(g) -
+                       0.014615 * math.cos(2 * g) - 0.040849 * math.sin(2 * g))
+    decl = (0.006918 - 0.399912 * math.cos(g) + 0.070257 * math.sin(g) - 0.006758 * math.cos(2 * g) +
+            0.000907 * math.sin(2 * g) - 0.002697 * math.cos(3 * g) + 0.00148 * math.sin(3 * g))
+    cos_ha = (math.cos(math.radians(90.833)) / (math.cos(math.radians(lat)) * math.cos(decl)) -
+              math.tan(math.radians(lat)) * math.tan(decl))
+    if abs(cos_ha) >= 1:
+        return None
+    ha = math.degrees(math.acos(cos_ha))
+    midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    local = lambda minutes: (midnight + timedelta(minutes=minutes)).astimezone().strftime('%H:%M')
+    return local(720 - 4 * (lon + ha) - eqtime), local(720 - 4 * (lon - ha) - eqtime)
+
+
+def run_root(*argv):
+    """Runs a helper via pkexec; returns the error text on failure."""
+    result = subprocess.run(['pkexec', *argv], capture_output=True, text=True)
+    if result.returncode in (126, 127) and not result.stderr.strip():
+        return _('Not authorized')
+    return None if result.returncode == 0 else (helper_error(result.stderr) or _('Operation failed'))
+
+
+class Upower:
+    """UPower D-Bus interfaces for the battery, keyboard backlight and power profile.
+    If UPower or power-profiles is missing, the related parts return nothing."""
+
+    def __init__(self):
+        def proxy(name, path, iface):
+            try:
+                return Gio.DBusProxy.new_sync(bus, Gio.DBusProxyFlags.NONE, None, name, path, iface)
+            except GLib.Error:
+                return None
+        try:
+            bus = Gio.bus_get_sync(Gio.BusType.SYSTEM)
+        except GLib.Error:
+            bus = None
+        self.display = bus and proxy('org.freedesktop.UPower', '/org/freedesktop/UPower/devices/DisplayDevice',
+                                     'org.freedesktop.UPower.Device')
+        self.kbd = bus and proxy('org.freedesktop.UPower', '/org/freedesktop/UPower/KbdBacklight',
+                                 'org.freedesktop.UPower.KbdBacklight')
+        self.profiles = bus and proxy('org.freedesktop.UPower.PowerProfiles', '/org/freedesktop/UPower/PowerProfiles',
+                                      'org.freedesktop.UPower.PowerProfiles')
+        try:
+            self.kbd_max = self.kbd.call_sync('GetMaxBrightness', None, 0, -1, None).unpack()[0] if self.kbd else 0
+        except GLib.Error:
+            self.kbd_max = 0
+
+    def battery(self):
+        if not self.display or self.display.get_name_owner() is None:
+            return None
+        p = lambda name: (v.unpack() if (v := self.display.get_cached_property(name)) else None)
+        return {'percent': p('Percentage') or 0, 'state': p('State') or 0, 'rate': p('EnergyRate') or 0,
+                'to_empty': p('TimeToEmpty') or 0, 'to_full': p('TimeToFull') or 0}
+
+    def kbd_brightness(self):
+        if not self.kbd_max:
+            return None
+        try:
+            return self.kbd.call_sync('GetBrightness', None, 0, -1, None).unpack()[0]
+        except GLib.Error:
+            return None
+
+    def profile(self):
+        v = self.profiles.get_cached_property('ActiveProfile') if self.profiles else None
+        return v.unpack() if v else None
+
+
+def fmt_time(seconds):
+    minutes = round(seconds / 60)
+    if minutes >= 60:
+        return _('{hours} h {minutes} min').format(hours=minutes // 60, minutes=minutes % 60)
+    return _('{minutes} min').format(minutes=minutes)
+
+
+# ---------------------------------------------------------------- UI widgets
+
+class StatCard(Gtk.Box):
+    def __init__(self, icon, title, tint):
+        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=6, hexpand=True)
+        self.add_css_class('card')
+        self.add_css_class('stat-card')
+        self.add_css_class(f'tint-{tint}')
+        head = Gtk.Box(spacing=8)
+        head.append(Gtk.Image(icon_name=icon, pixel_size=18, css_classes=['stat-icon']))
+        head.append(Gtk.Label(label=title, xalign=0, css_classes=['stat-title']))
+        self.append(head)
+        row = Gtk.Box(spacing=4, valign=Gtk.Align.BASELINE_FILL)
+        self.value = Gtk.Label(label='—', xalign=0, css_classes=['stat-value'])
+        self.unit = Gtk.Label(label='', xalign=0, valign=Gtk.Align.BASELINE, css_classes=['stat-unit'])
+        row.append(self.value)
+        row.append(self.unit)
+        self.append(row)
+        self.sub = Gtk.Label(label='', xalign=0, css_classes=['stat-sub'], ellipsize=Pango.EllipsizeMode.END)
+        self.append(self.sub)
+
+    def set(self, value, unit='', sub='', level=None):
+        for css in ('level-good', 'level-warn', 'level-bad'):
+            self.value.remove_css_class(css)
+        if level:
+            self.value.add_css_class(f'level-{level}')
+        self.value.set_label(value)
+        self.unit.set_label(unit)
+        self.sub.set_label(sub)
+
+
+class Graph(Gtk.DrawingArea):
+    """History of CPU temperature (accent color) and fan speed (orange)."""
+
+    def __init__(self, temps, rpms):
+        super().__init__(content_height=170, hexpand=True)
+        self.temps, self.rpms = temps, rpms
+        self.set_draw_func(self._draw)
+
+    def _draw(self, _area, cr, w, h):
+        fg = self.get_color()
+        pad_l, pad_b, pad_t = 34, 18, 8
+        gw, gh = w - pad_l - 6, h - pad_b - pad_t
+        # horizontal grid lines and temperature axis (30-100 °C)
+        cr.set_line_width(1)
+        cr.select_font_face('Sans')
+        cr.set_font_size(10)
+        for t in (40, 60, 80, 100):
+            y = pad_t + gh * (1 - (t - 30) / 70)
+            cr.set_source_rgba(fg.red, fg.green, fg.blue, .08)
+            cr.move_to(pad_l, y)
+            cr.line_to(pad_l + gw, y)
+            cr.stroke()
+            cr.set_source_rgba(fg.red, fg.green, fg.blue, .45)
+            cr.move_to(4, y + 3)
+            cr.show_text(f'{t}°')
+        cr.set_source_rgba(fg.red, fg.green, fg.blue, .45)
+        cr.move_to(pad_l, h - 4)
+        cr.show_text(_('3 min ago'))
+        now = _('now')
+        cr.move_to(pad_l + gw - max(22, cr.text_extents(now).x_advance), h - 4)
+        cr.show_text(now)
+
+        def line(values, scale, rgba, fill):
+            pts = [(pad_l + gw * i / (HISTORY - 1), pad_t + gh * (1 - min(max(scale(v), 0), 1)))
+                   for i, v in enumerate(values, start=HISTORY - len(values)) if v is not None]
+            if len(pts) < 2:
+                return
+            cr.set_source_rgba(*rgba)
+            cr.set_line_width(2.4)
+            cr.move_to(*pts[0])
+            for p in pts[1:]:
+                cr.line_to(*p)
+            if fill:
+                cr.stroke_preserve()
+                cr.line_to(pts[-1][0], pad_t + gh)
+                cr.line_to(pts[0][0], pad_t + gh)
+                cr.close_path()
+                cr.set_source_rgba(rgba[0], rgba[1], rgba[2], .12)
+                cr.fill()
+            else:
+                cr.stroke()
+
+        accent = Adw.StyleManager.get_default().get_accent_color_rgba()
+        line(self.rpms, lambda v: v / 5000, (1.0, .56, .24, .95), False)
+        line(self.temps, lambda v: (v - 30) / 70, (accent.red, accent.green, accent.blue, 1), True)
+
+
+def page(*children):
+    """Centered, scrollable page."""
+    box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18,
+                  margin_top=18, margin_bottom=24, margin_start=16, margin_end=16)
+    for c in children:
+        box.append(c)
+    clamp = Adw.Clamp(maximum_size=760, child=box)
+    return Gtk.ScrolledWindow(child=clamp, hscrollbar_policy=Gtk.PolicyType.NEVER)
+
+
+def badge(icon, color):
+    """Colored square icon for the start of a row."""
+    return Gtk.Image(icon_name=icon, pixel_size=16, valign=Gtk.Align.CENTER, css_classes=['badge', color])
+
+
+def decorate(*rows):
+    """Adds badges to (row, icon, color) triples."""
+    for row, icon, color in rows:
+        row.add_prefix(badge(icon, color))
+
+
+def toggle_group(options, on_change):
+    group = Adw.ToggleGroup(valign=Gtk.Align.CENTER)
+    for name, label, icon in options:
+        toggle = Adw.Toggle(name=name, label=label)
+        if icon:
+            toggle.set_icon_name(icon)
+        group.add(toggle)
+    group.connect('notify::active-name', lambda g, _p: on_change(g.get_active_name()))
+    return group
+
+
+class FanCurveEditor(Gtk.DrawingArea):
+    """Fan curve: x = temperature (30–90 °C), y = fan duty (0–100%). Points are draggable.
+
+    The controller applies the curve as steps: when the temperature passes a point the fan
+    rises to that point's duty, and drops back to the previous step a few degrees lower.
+    Safety (the driver checks too): points are between 30 and 85 °C and increasing, duty
+    never decreases, the first point is at 70 °C at the latest and at least 20% (so the fan
+    doesn't sit still until things get hot), and the last point is 100%.
+    """
+    T0, T1 = 30, 90
+    PAD_L, PAD_R, PAD_T, PAD_B = 42, 14, 12, 26
+
+    def __init__(self, on_change):
+        super().__init__(content_height=250, hexpand=True, margin_top=6, margin_bottom=6)
+        self.points = [list(p) for p in FAN_PRESETS['balanced'][1]]
+        self.base = FAN_PRESETS['balanced'][0]
+        self.on_change = on_change
+        self._drag = None
+        self.set_draw_func(self._draw)
+        drag = Gtk.GestureDrag()
+        drag.connect('drag-begin', self._begin)
+        drag.connect('drag-update', self._update)
+        drag.connect('drag-end', lambda *_: setattr(self, '_drag', None))
+        self.add_controller(drag)
+        self.set_cursor(Gdk.Cursor.new_from_name('pointer'))
+
+    # --- coordinate conversion
+    def _area(self):
+        w, h = self.get_width(), self.get_height()
+        return self.PAD_L, self.PAD_T, w - self.PAD_L - self.PAD_R, h - self.PAD_T - self.PAD_B
+
+    def _xy(self, t, d):
+        x, y, w, h = self._area()
+        return x + w * (t - self.T0) / (self.T1 - self.T0), y + h * (1 - d / 100)
+
+    def _td(self, px, py):
+        x, y, w, h = self._area()
+        return self.T0 + (px - x) / w * (self.T1 - self.T0), (1 - (py - y) / h) * 100
+
+    # --- dragging
+    def _begin(self, _g, px, py):
+        best, dist = None, 18
+        for i, (t, d) in enumerate(self.points):
+            x, y = self._xy(t, d)
+            if abs(x - px) + abs(y - py) < dist:
+                best, dist = i, abs(x - px) + abs(y - py)
+        self._drag = best
+
+    def _update(self, g, dx, dy):
+        if self._drag is None:
+            return
+        _ok, sx, sy = g.get_start_point()
+        t, d = self._td(sx + dx, sy + dy)
+        i, pts = self._drag, self.points
+        lo_t = pts[i - 1][0] + 2 if i > 0 else 30
+        hi_t = pts[i + 1][0] - 2 if i + 1 < len(pts) else 85
+        lo_d = pts[i - 1][1] if i > 0 else max(self.base, 20)
+        if i == 0:
+            hi_t = min(hi_t, 70)
+        hi_d = pts[i + 1][1] if i + 1 < len(pts) else 100
+        pts[i][0] = int(round(min(max(t, lo_t), hi_t)))
+        pts[i][1] = 100 if i == len(pts) - 1 else int(round(min(max(d, lo_d), hi_d) / 5) * 5)
+        self.queue_draw()
+        self.on_change()
+
+    # --- editing
+    def set_preset(self, name):
+        base, pts = FAN_PRESETS[name]
+        self.base, self.points = base, [list(p) for p in pts]
+        self.queue_draw()
+
+    def set_base(self, value):
+        """Can't exceed the first point's duty; returns the value applied."""
+        self.base = min(int(value), self.points[0][1])
+        self.queue_draw()
+        return self.base
+
+    def add_point(self):
+        if len(self.points) >= 10:
+            return
+        gaps = [(self.points[i + 1][0] - self.points[i][0], i) for i in range(len(self.points) - 1)]
+        gap, i = max(gaps) if gaps else (0, -1)
+        if gap < 5:
+            return
+        a, b = self.points[i], self.points[i + 1]
+        self.points.insert(i + 1, [(a[0] + b[0]) // 2, (a[1] + b[1]) // 2 // 5 * 5])
+        self.queue_draw()
+
+    def remove_point(self):
+        if len(self.points) > 2:
+            del self.points[-2]
+            self.queue_draw()
+
+    def table(self):
+        """The 48 numbers the driver expects: 16 rising thresholds, 16 falling thresholds, 16 duties (% × 2)."""
+        n = len(self.points)
+        up = [t for t, _ in self.points] + [255] * (16 - n)
+        down = [0] + [max(20, self.points[0][0] - 8)] + [t - 3 for t, _ in self.points[1:]] + [255] * (15 - n)
+        duty = [self.base * 2] + [d * 2 for _, d in self.points]
+        duty += [duty[-1]] * (16 - len(duty))
+        return up + down + duty
+
+    def set_table(self, nums):
+        up, duty = nums[:16], nums[32:]
+        # the driver accepts at most 15 points (up[15] is always 255): the 16th rising threshold has no duty
+        n = next((i for i, v in enumerate(up) if v == 255), 15)
+        if n < 1:
+            return
+        self.base = duty[0] // 2
+        self.points = [[up[i], duty[i + 1] // 2] for i in range(n)]
+        self.points[-1][1] = 100
+        self.queue_draw()
+
+    # --- drawing
+    def _draw(self, _area, cr, w, h):
+        fg = self.get_color()
+        x0, y0, gw, gh = self._area()
+        accent = Adw.StyleManager.get_default().get_accent_color_rgba()
+        cr.set_line_width(1)
+        cr.select_font_face('Sans')
+        cr.set_font_size(10)
+        for t in range(30, 91, 10):
+            x = self._xy(t, 0)[0]
+            cr.set_source_rgba(fg.red, fg.green, fg.blue, .08)
+            cr.move_to(x, y0)
+            cr.line_to(x, y0 + gh)
+            cr.stroke()
+            cr.set_source_rgba(fg.red, fg.green, fg.blue, .5)
+            cr.move_to(x - 9, h - 8)
+            cr.show_text(f'{t}°')
+        for d in (0, 25, 50, 75, 100):
+            y = self._xy(30, d)[1]
+            cr.set_source_rgba(fg.red, fg.green, fg.blue, .08)
+            cr.move_to(x0, y)
+            cr.line_to(x0 + gw, y)
+            cr.stroke()
+            cr.set_source_rgba(fg.red, fg.green, fg.blue, .5)
+            cr.move_to(4, y + 3)
+            cr.show_text(pct(d))
+        # 85 °C limit
+        x85 = self._xy(85, 0)[0]
+        cr.set_source_rgba(0.88, 0.11, 0.14, .35)
+        cr.set_dash([4, 4])
+        cr.move_to(x85, y0)
+        cr.line_to(x85, y0 + gh)
+        cr.stroke()
+        cr.set_dash([])
+        # stepped curve
+        steps = [(self.T0, self.base)] + [(t, d) for t, d in self.points]
+        cr.move_to(*self._xy(self.T0, self.base))
+        for i, (t, d) in enumerate(steps[1:], start=1):
+            cr.line_to(*self._xy(t, steps[i - 1][1]))
+            cr.line_to(*self._xy(t, d))
+        cr.line_to(*self._xy(self.T1, 100))
+        cr.set_source_rgba(accent.red, accent.green, accent.blue, 1)
+        cr.set_line_width(2.5)
+        cr.stroke_preserve()
+        cr.line_to(*self._xy(self.T1, 0))
+        cr.line_to(*self._xy(self.T0, 0))
+        cr.close_path()
+        cr.set_source_rgba(accent.red, accent.green, accent.blue, .12)
+        cr.fill()
+        for i, (t, d) in enumerate(self.points):
+            x, y = self._xy(t, d)
+            cr.new_path()   # don't draw a line from the previous label to the circle
+            cr.arc(x, y, 7 if i == self._drag else 6, 0, 6.2832)
+            cr.set_source_rgba(1, 1, 1, 1)
+            cr.fill_preserve()
+            cr.set_source_rgba(accent.red, accent.green, accent.blue, 1)
+            cr.set_line_width(2.5)
+            cr.stroke()
+            cr.set_source_rgba(fg.red, fg.green, fg.blue, .8)
+            cr.move_to(x - 16, y - 12)
+            cr.show_text(f'{t}° {pct(d)}')
+
+
+class HistoryChart(Gtk.DrawingArea):
+    """Single-series chart with a time axis (History page)."""
+
+    def __init__(self, unit, rgba, fixed=None):
+        super().__init__(content_height=120, hexpand=True)
+        self.unit, self.rgba, self.fixed = unit, rgba, fixed
+        self.times, self.values, self.span = [], [], (0, 1)
+        self.set_draw_func(self._draw)
+
+    def set_data(self, times, values, span):
+        self.times, self.values, self.span = times, values, span
+        self.queue_draw()
+
+    def _draw(self, _area, cr, w, h):
+        fg = self.get_color()
+        pad_l, pad_b, pad_t = 44, 18, 8
+        gw, gh = w - pad_l - 8, h - pad_b - pad_t
+        vals = [v for v in self.values if v is not None]
+        lo, hi = self.fixed or ((min(vals), max(vals)) if vals else (0, 1))
+        if hi - lo < 1e-6:
+            hi = lo + 1
+        cr.set_font_size(10)
+        cr.set_line_width(1)
+        for frac in (0, .5, 1):
+            y = pad_t + gh * (1 - frac)
+            cr.set_source_rgba(fg.red, fg.green, fg.blue, .08)
+            cr.move_to(pad_l, y)
+            cr.line_to(pad_l + gw, y)
+            cr.stroke()
+            cr.set_source_rgba(fg.red, fg.green, fg.blue, .5)
+            cr.move_to(2, y + 3)
+            cr.show_text(f'{lo + (hi - lo) * frac:.0f}{self.unit}')
+        t0, t1 = self.span
+        # beyond 12 hours the time alone is ambiguous (yesterday or today?): show the date too
+        if t1 - t0 <= 12 * 3600:
+            fmt = '%H:%M'
+        elif t1 - t0 <= 2 * 86400:
+            # Translators: strftime format for chart labels (day, month and time)
+            # xgettext: no-python-format
+            fmt = _('%m/%d %H:%M')
+        else:
+            # Translators: strftime format for chart labels (day and month)
+            # xgettext: no-python-format
+            fmt = _('%m/%d')
+        from datetime import datetime as _dt
+        for frac in (0, .5, 1):
+            text = _dt.fromtimestamp(t0 + (t1 - t0) * frac).strftime(fmt)
+            cr.move_to(pad_l + gw * frac - cr.text_extents(text).x_advance * frac, h - 3)
+            cr.show_text(text)
+        if not vals:
+            cr.move_to(pad_l + gw / 2 - 40, pad_t + gh / 2)
+            cr.show_text(_('No records yet'))
+            return
+        cr.set_source_rgba(*self.rgba)
+        cr.set_line_width(1.8)
+        prev = None
+        gap = max(600, (t1 - t0) / 150)   # break the line where records are missing (while powered off)
+        for t, v in zip(self.times, self.values):
+            if v is None:
+                prev = None
+                continue
+            x = pad_l + gw * (t - t0) / max(t1 - t0, 1)
+            y = pad_t + gh * (1 - (min(max(v, lo), hi) - lo) / (hi - lo))
+            if prev is None or t - prev > gap:
+                cr.move_to(x, y)
+            else:
+                cr.line_to(x, y)
+            prev = t
+        cr.stroke()
+
+
+# ---------------------------------------------------------------- main window
+
+class Window(Adw.ApplicationWindow):
+    def __init__(self, app):
+        super().__init__(application=app, title=APP_NAME, default_width=1100, default_height=820)
+        self.up = Upower()
+        self.temps = deque(maxlen=HISTORY)
+        self.rpms = deque(maxlen=HISTORY)
+        self._updating = False  # ignore signals while updating programmatically
+        self._kbd_cfg = kbd_config()
+        self._kbd_saving = 0        # keyboard.json writes in progress
+        self._kbd_later_keys = set()
+        self._manual_light = None   # (value, time): "Measure Now" result; superseded if light.json is newer
+        self._sun = (None, None)    # (day, sunrise/sunset)
+        self.toasts = Adw.ToastOverlay()
+
+        # page list on the left like GNOME Settings; the sidebar hides in narrow windows
+        self.stack = Gtk.Stack(transition_type=Gtk.StackTransitionType.CROSSFADE)
+        self.page_titles = {}
+        sidebar_list = self.sidebar = Gtk.ListBox(css_classes=['navigation-sidebar'])
+        for name, title, icon, build in (
+                ('overview', _('Overview'), 'computer-symbolic', self._overview),
+                ('performance', _('Performance'), 'power-profile-performance-symbolic', self._perf_page),
+                ('automation', _('Automation'), 'preferences-system-time-symbolic', self._auto_page),
+                ('fan', _('Fan'), 'hc-fan-symbolic', self._fan_page),
+                ('keyboard', _('Keyboard'), 'input-keyboard-symbolic', self._keyboard_page),
+                ('ambient', _('Ambient Light'), 'display-brightness-symbolic', self._ambient_page),
+                ('battery', _('Battery'), 'battery-good-symbolic', self._battery_page),
+                ('power', _('Power Saving'), 'power-profile-power-saver-symbolic', self._power_page),
+                ('history', _('History'), 'document-open-recent-symbolic', self._history_page),
+                ('about', _('About'), 'help-about-symbolic', self._info_page)):
+            self.stack.add_named(build(), name)
+            self.page_titles[name] = title
+            row_box = Gtk.Box(spacing=12, margin_top=8, margin_bottom=8, margin_start=6)
+            row_box.append(Gtk.Image(icon_name=icon))
+            row_box.append(Gtk.Label(label=title, xalign=0))
+            row = Gtk.ListBoxRow(child=row_box)
+            row.page_name = name
+            sidebar_list.append(row)
+        sidebar_list.connect('row-selected', lambda _l, row: row and self.show_page(row.page_name, select=False))
+
+        side_view = Adw.ToolbarView(content=Gtk.ScrolledWindow(child=sidebar_list,
+                                                              hscrollbar_policy=Gtk.PolicyType.NEVER))
+        side_view.add_top_bar(Adw.HeaderBar(title_widget=Adw.WindowTitle(title=APP_NAME),
+                                            show_end_title_buttons=False))
+        self.content_title = Adw.WindowTitle(title=_('Overview'))
+        content_header = Adw.HeaderBar(title_widget=self.content_title)
+        self.sidebar_button = Gtk.ToggleButton(icon_name='sidebar-show-symbolic', visible=False,
+                                               tooltip_text=_('Pages'))
+        content_header.pack_start(self.sidebar_button)
+        content_view = Adw.ToolbarView(content=self.stack)
+        content_view.add_top_bar(content_header)
+        split = self.split = Adw.OverlaySplitView(sidebar=side_view, content=content_view,
+                                                  min_sidebar_width=200, max_sidebar_width=240)
+        split.bind_property('show-sidebar', self.sidebar_button, 'active',
+                            GObject.BindingFlags.BIDIRECTIONAL | GObject.BindingFlags.SYNC_CREATE)
+        self.toasts.set_child(split)
+        self.set_content(self.toasts)
+
+        bp = Adw.Breakpoint.new(Adw.BreakpointCondition.parse('max-width: 640sp'))
+        bp.add_setter(split, 'collapsed', True)
+        bp.add_setter(self.sidebar_button, 'visible', True)
+        self.add_breakpoint(bp)
+        sidebar_list.select_row(sidebar_list.get_row_at_index(0))
+
+        if self.up.kbd:
+            self.up.kbd.connect('g-signal', self._on_kbd_signal)
+        self._reading = False
+        self._last_fan = self._last_duty = None
+        self._tick = 0
+        self._cache = {}
+        self._want_full = False
+        self._pending = 0      # root commands in progress: don't revert the controls until they finish
+        self._generation = 0   # bumped when a command starts and ends; stale reads aren't applied to the controls
+        # the extension (Quick Settings) also changes keyboard.json: reflect changes in the controls
+        self._kbd_monitor = Gio.File.new_for_path(str(KBD_CONFIG)).monitor_file(Gio.FileMonitorFlags.NONE, None)
+        self._kbd_monitor.connect('changed', lambda *_: self._reload_kbd_later())
+        self._kbd_reload_timer = 0
+        self._sync_kbd_texts(force=True)
+        self.refresh(True)   # first read is full (so settings load even if the window opens in the background)
+        self._timer = GLib.timeout_add_seconds(2, self.refresh)
+        # the driver reports mode key, Fan Boost and curve changes with a udev event
+        if GUdev:
+            self._udev = GUdev.Client(subsystems=['platform'])
+            self._udev.connect('uevent', lambda _c, action, dev: action == 'change' and
+                               dev.get_name() == 'qc71_laptop' and GLib.idle_add(lambda: self.refresh(True) and False))
+        # refresh right away when focused or restored from minimized
+        for prop in ('notify::is-active', 'notify::suspended'):
+            self.connect(prop, lambda *_: self.is_active() and not self.is_suspended() and self.refresh(True))
+        GLib.timeout_add_seconds(3, lambda: self._sync_location() and False)
+        self.connect('close-request', lambda *_: GLib.source_remove(self._timer) and False)
+
+    def toast(self, text):
+        self.toasts.add_toast(Adw.Toast(title=text, timeout=3))
+
+    def show_page(self, name, select=True):
+        name = PAGE_ALIASES.get(name, name)
+        if name not in self.page_titles:
+            return
+        self.stack.set_visible_child_name(name)
+        self.content_title.set_title(self.page_titles[name])
+        if select:
+            i = 0
+            while (row := self.sidebar.get_row_at_index(i)) is not None:
+                if row.page_name == name:
+                    self.sidebar.select_row(row)
+                    break
+                i += 1
+        if self.split.get_collapsed():
+            self.split.set_show_sidebar(False)
+        if name == 'history':
+            self._load_history()
+        elif name == 'keyboard':
+            self._sync_kbd_texts(force=True)   # sunrise/sunset changes every day
+
+    # ---- pages
+
+    def _overview(self):
+        hero = Gtk.Box(spacing=16, css_classes=['hero'])
+        hero.append(Gtk.Image(icon_name=APP_ID, pixel_size=64))
+        info = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4, valign=Gtk.Align.CENTER, hexpand=True)
+        model = ' '.join(filter(None, [read('/sys/class/dmi/id/sys_vendor', '').title(),
+                                       read('/sys/class/dmi/id/product_name', '')]))
+        info.append(Gtk.Label(label=model or _('Laptop'), xalign=0, css_classes=['hero-title']))
+        cpu = next((l.split(':', 1)[1].strip() for l in (read('/proc/cpuinfo', '') or '').splitlines()
+                    if l.startswith('model name')), '')
+        info.append(Gtk.Label(label=cpu.replace('11th Gen ', '').replace('(R)', '').replace('(TM)', ''),
+                              xalign=0, css_classes=['dim-label']))
+        chips = Gtk.Box(spacing=6, margin_top=6)
+        self.chip_profile = Gtk.Label(css_classes=['chip'])
+        self.chip_fan = Gtk.Label(css_classes=['chip'])
+        chips.append(self.chip_profile)
+        chips.append(self.chip_fan)
+        info.append(chips)
+        hero.append(info)
+
+        grid = Gtk.Grid(column_spacing=12, row_spacing=12, column_homogeneous=True)
+        self.card_cpu = StatCard('hc-thermometer-symbolic', _('CPU'), 'orange')
+        self.card_fan = StatCard('hc-fan-symbolic', _('Fan'), 'teal')
+        self.card_power = StatCard('power-profile-balanced-symbolic', _('Power draw'), 'yellow')
+        self.card_battery = StatCard('battery-level-80-symbolic', _('Battery'), 'green')
+        for i, card in enumerate([self.card_cpu, self.card_fan, self.card_power, self.card_battery]):
+            grid.attach(card, i % 2, i // 2, 1, 1)
+
+        graph_card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10, css_classes=['card', 'graph-card'])
+        legend = Gtk.Box(spacing=16)
+        legend.append(Gtk.Label(label=_('Last 3 minutes'), xalign=0, hexpand=True, css_classes=['heading']))
+        for css, text in (('legend-accent', _('CPU temperature')), ('legend-fan', _('Fan speed (0–5000 rpm)'))):
+            item = Gtk.Box(spacing=6)
+            item.append(Gtk.Box(css_classes=['legend-dot', css], valign=Gtk.Align.CENTER))
+            item.append(Gtk.Label(label=text, css_classes=['caption']))
+            legend.append(item)
+        graph_card.append(legend)
+        self.graph = Graph(self.temps, self.rpms)
+        graph_card.append(self.graph)
+        return page(hero, grid, graph_card)
+
+    def _perf_page(self):
+        prefs = Adw.PreferencesPage()
+        banner_group = Adw.PreferencesGroup()
+        self.mode_banner = Gtk.Box(spacing=16, css_classes=['mode-banner', 'unknown'])
+        self.mode_icon = Gtk.Image(icon_name='power-profile-balanced-symbolic', pixel_size=40)
+        self.mode_banner.append(self.mode_icon)
+        text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2, valign=Gtk.Align.CENTER)
+        self.mode_title = Gtk.Label(label='—', xalign=0, css_classes=['mode-title'])
+        self.mode_sub = Gtk.Label(label='', xalign=0, css_classes=['dim-label'], wrap=True)
+        text.append(self.mode_title)
+        text.append(self.mode_sub)
+        self.mode_banner.append(text)
+        banner_group.add(self.mode_banner)
+        prefs.add(banner_group)
+        # power mode: OS (tuned) and controller together; usually this alone is enough
+        power = Adw.PreferencesGroup(title=_('Power Mode'), description=_(
+            'Power Saver = Quiet 20 dB (15 W), Balanced = Balanced Medium (Quiet 20 dB on battery if the '
+            'battery power-saving profile is on), Performance = Balanced High. Same as the Performance tile '
+            'in Quick Settings.'))
+        row = Adw.ActionRow(title=pgettext('power mode', 'Mode'))
+        decorate((row, 'power-profile-balanced-symbolic', 'purple'))
+        self.profile_toggle = toggle_group([
+            ('power-saver', _('Power Saver'), 'power-profile-power-saver-symbolic'),
+            ('balanced', _('Balanced'), 'power-profile-balanced-symbolic'),
+            ('performance', _('Performance'), 'power-profile-performance-symbolic')], self._on_profile)
+        row.add_suffix(self.profile_toggle)
+        power.add(row)
+        prefs.add(power)
+        mode = self.perf_group = Adw.PreferencesGroup(title=_('Fine Tuning'), description=_(
+            'The controller mode itself: in Balanced mode the CPU can use full power; in Quiet mode power and '
+            'fan noise are limited. When the power mode changes, this setting follows it.'))
+        row = Adw.ActionRow(title=_('Mode'))
+        self.perf_mode_toggle = toggle_group([(n, t, None) for n, t in PERF_MODES], self._on_perf_mode)
+        row.add_suffix(self.perf_mode_toggle)
+        decorate((row, 'power-profile-balanced-symbolic', 'purple'))
+        mode.add(row)
+        self.perf_level_row = Adw.ActionRow(title=_('Level'))
+        self.perf_level_toggle = toggle_group([(str(i), t, None) for i, (_, t, _) in
+                                               enumerate(PERF_LEVELS['balanced'])], self._on_perf_level)
+        self.perf_level_row.add_suffix(self.perf_level_toggle)
+        mode.add(self.perf_level_row)
+        self.boost_row = Adw.SwitchRow(title=_('Fan Boost'),
+                                       subtitle=_("Fan always at full speed: the CPU doesn't slow down under "
+                                                  "long loads, but it's loud"))
+        self.boost_row.connect('notify::active', self._on_boost)
+        decorate((self.perf_level_row, 'power-profile-performance-symbolic', 'orange'),
+                 (self.boost_row, 'hc-fan-symbolic', 'red'))
+        mode.add(self.boost_row)
+        prefs.add(mode)
+        self.perf_missing = Adw.PreferencesGroup(description=_(
+            "The driver doesn't support performance modes or isn't loaded. "
+            'To install: ./install.sh'))
+        prefs.add(self.perf_missing)
+        self.perf = None  # (mode, level index) or None
+        return prefs
+
+    def _fan_page(self):
+        prefs = Adw.PreferencesPage()
+        live = Adw.PreferencesGroup(title=_('Current Status'))
+        self.row_rpm = Adw.ActionRow(title=_('Fan speed'), css_classes=['property'])
+        self.row_fan_temp = Adw.ActionRow(title=_('Fan sensor temperature'), css_classes=['property'])
+        self.row_cpu_temp = Adw.ActionRow(title=_('CPU temperature'), css_classes=['property'])
+        self.row_duty = Adw.ActionRow(title=_('Fan power'), css_classes=['property'])
+        decorate((self.row_rpm, 'hc-fan-symbolic', 'teal'), (self.row_duty, 'system-run-symbolic', 'blue'),
+                 (self.row_fan_temp, 'temperature-symbolic', 'orange'),
+                 (self.row_cpu_temp, 'hc-thermometer-symbolic', 'red'))
+        for r in (self.row_rpm, self.row_duty, self.row_fan_temp, self.row_cpu_temp):
+            live.add(r)
+        prefs.add(live)
+
+        mode = Adw.PreferencesGroup(title=_('Fan Mode'), description=_(
+            'In Automatic mode the laptop manages the fan itself based on temperature. Fan Boost '
+            'runs the fan at full speed all the time: it keeps the CPU from slowing down in games and '
+            'long builds, but it is loud and drains the battery faster.'))
+        row = Adw.ActionRow(title=_('Mode'))
+        decorate((row, 'hc-fan-symbolic', 'purple'))
+        self.fan_toggle = toggle_group([('auto', _('Automatic'), None), ('max', _('Fan Boost'), None)],
+                                       self._on_fan_mode)
+        row.add_suffix(self.fan_toggle)
+        mode.add(row)
+        prefs.add(mode)
+        prefs.add(self._fan_curve_group())
+        self.fan_missing = Adw.PreferencesGroup(description=_(
+            "The qc71_laptop driver isn't loaded; fan information can't be read. "
+            'To install: ./install.sh'))
+        prefs.add(self.fan_missing)
+        return prefs
+
+    def _keyboard_page(self):
+        prefs = Adw.PreferencesPage()
+        # descriptions depend on settings, see _sync_kbd_texts
+        light = self.kbd_light_group = Adw.PreferencesGroup(title=_('Backlight'))
+        row = Adw.ActionRow(title=_('Brightness'))
+        decorate((row, 'keyboard-brightness-symbolic', 'yellow'))
+        self.kbd_toggle = toggle_group([(str(i), KBD_LEVELS[i], None) for i in range(3)], self._on_kbd_level)
+        row.add_suffix(self.kbd_toggle)
+        light.add(row)
+        self.timeout_row = Adw.ComboRow(
+            title=_('Turn off when idle'),
+            model=Gtk.StringList.new([label for _, label in TIMEOUTS]))
+        current = self._kbd_cfg['idle_timeout_s']
+        self.timeout_row.set_selected(next((i for i, (s, _) in enumerate(TIMEOUTS) if s == current), 2))
+        self.timeout_row.connect('notify::selected', self._on_timeout)
+        light.add(self.timeout_row)
+        self.daytime_row = Adw.SwitchRow(title=_('Start off during daytime'))
+        self.daytime_row.set_active(self._kbd_cfg['off_in_daytime'])
+        self.daytime_row.connect('notify::active', self._on_daytime)
+        decorate((self.timeout_row, 'preferences-system-time-symbolic', 'blue'),
+                 (self.daytime_row, 'weather-clear-symbolic', 'orange'))
+        light.add(self.daytime_row)
+        prefs.add(light)
+
+        # ambient light settings affect the screen too, so they have their own page
+        ambient = Adw.PreferencesGroup()
+        link = Adw.ActionRow(title=_('Turn on/off by ambient light'), activatable=True,
+                             subtitle=_("Turns on when the room is dark and off when it's bright: "
+                                        'on the Ambient Light page'))
+        link.add_suffix(Gtk.Image(icon_name='go-next-symbolic'))
+        link.connect('activated', lambda *_: self.show_page('ambient'))
+        decorate((link, 'weather-clear-night-symbolic', 'purple'))
+        ambient.add(link)
+        prefs.add(ambient)
+
+        keys = Adw.PreferencesGroup(title=_('Keys'))
+        self.super_row = Adw.SwitchRow(title=_('Lock the Windows key'),
+                                       subtitle=_("Don't open the Activities overview when it's pressed by "
+                                                  'accident while gaming'))
+        self.super_row.connect('notify::active', self._on_super_lock)
+        keys.add(self.super_row)
+        self.fn_row = Adw.SwitchRow(title=_('Fn lock'),
+                                    subtitle=_('When on, F1–F12 work as function keys instead of media and '
+                                               'display keys without pressing Fn'))
+        self.fn_row.connect('notify::active', self._on_fn_lock)
+        keys.add(self.fn_row)
+        self.touchpad_row = Adw.SwitchRow(title=_('Touchpad shortcut'),
+                                          subtitle=_('Enable the Fn key that turns the touchpad off and on'))
+        self.touchpad_row.connect('notify::active', self._on_touchpad_toggle)
+        keys.add(self.touchpad_row)
+        decorate((self.super_row, 'system-lock-screen-symbolic', 'purple'),
+                 (self.fn_row, 'input-keyboard-symbolic', 'slate'),
+                 (self.touchpad_row, 'input-touchpad-symbolic', 'teal'))
+        prefs.add(keys)
+        light.set_sensitive(self.up.kbd_max > 0)
+        return prefs
+
+    def _power_page(self):
+        prefs = Adw.PreferencesPage()
+        # the power mode is on the Performance page (Power Saver / Balanced / Performance); only saving options here
+        saving = Adw.PreferencesGroup(title=_('Power Saving Options'), description=_(
+            'The power mode (Power Saver / Balanced / Performance) is on the Performance page and in the '
+            'Performance tile in Quick Settings.'))
+        # no battery is used when plugged in: power-saving turn-offs are unnecessary (comfort features continue)
+        self.battery_only_row = Adw.SwitchRow(
+            title=_('Power-saving automations on battery only'),
+            subtitle=_("When plugged in, the keyboard backlight isn't turned off in daytime or bright light; "
+                       'ambient light is measured every 10 minutes. Turning off when idle, turning on in the dark '
+                       'and locking when nobody is there continue when plugged in. Takes effect as soon as you '
+                       'unplug.'),
+            active=self._kbd_cfg.get('battery_only', True))
+        self.battery_only_row.connect('notify::active', lambda r, _p: self._updating or self._save_kbd(
+            _('Power saving will work on battery only') if r.get_active() else
+            _('Power saving will also work when plugged in'), 'battery_only'))
+        decorate((self.battery_only_row, 'battery-good-symbolic', 'green'))
+        saving.add(self.battery_only_row)
+        self.battery_profile_row = Adw.SwitchRow(title=_('Power-saving profile on battery'),
+                                                 subtitle=_('On battery, Balanced uses Quiet 20 dB mode (15 W) '
+                                                            'with turbo off'))
+        # SD card reader as one choice: off (USB authorization removed) / on, sleeps when idle / always on
+        self.card_row = Adw.ComboRow(title=_('SD card reader'),
+                                     model=Gtk.StringList.new([label for _, label, _ in CARD_MODES]))
+        self.card_row.connect('notify::selected', self._on_card_mode)
+        self.updates_row = Adw.SwitchRow(title=_('Download updates in the background'),
+                                         subtitle=_('When off, updates are downloaded when you press "Update"'))
+        self.battery_profile_row.connect('notify::active', self._on_power_setting, 'battery-profile')
+        self.software = Gio.Settings.new('org.gnome.software') if Gio.SettingsSchemaSource.get_default().lookup(
+            'org.gnome.software', True) else None
+        if self.software:
+            self.software.bind('download-updates', self.updates_row, 'active', Gio.SettingsBindFlags.DEFAULT)
+        decorate((self.battery_profile_row, 'power-profile-power-saver-symbolic', 'green'),
+                 (self.card_row, 'media-flash-symbolic', 'slate'),
+                 (self.updates_row, 'software-update-available-symbolic', 'blue'))
+        for r in (self.battery_profile_row, self.card_row, self.updates_row):
+            saving.add(r)
+        has_helper = os.access(POWER_HELPER, os.X_OK)
+        self.battery_profile_row.set_visible(has_helper)
+        self.card_row.set_visible(has_helper)
+        self.updates_row.set_visible(bool(self.software))
+        prefs.add(saving)
+
+        off = self.off_group = Adw.PreferencesGroup(title=_('While Powered Off'), description=_(
+            "The two can't be on at the same time (same as in Monster Control Center). "
+            'The power-on setting is stored in UEFI, asks for the administrator password and takes effect '
+            'after a restart.'))
+        self.ac_row = Adw.SwitchRow(title=_('Power on when plugged in'),
+                                    subtitle=_("The computer turns itself on when the charger is connected "
+                                               "while it's off"))
+        self.ac_row.connect('notify::active', self._on_ac_recover)
+        self.usb_row = Adw.SwitchRow(title=_('USB power while off'),
+                                     subtitle=_('Charge a phone over USB while the computer is off or hibernating'))
+        self.usb_row.connect('notify::active', self._on_usb_power)
+        decorate((self.ac_row, 'ac-adapter-symbolic', 'orange'), (self.usb_row, 'phone-symbolic', 'blue'))
+        off.add(self.ac_row)
+        off.add(self.usb_row)
+        prefs.add(off)
+        return prefs
+
+    def _battery_page(self):
+        prefs = Adw.PreferencesPage()
+        health = Adw.PreferencesGroup(title=_('Battery Status'))
+        self.bat_rows = {key: Adw.ActionRow(title=title, css_classes=['property']) for key, title in (
+            ('charge', _('Charge')), ('capacity', _('Full charge capacity')), ('design', _('Design capacity')),
+            ('health', _('Battery health')), ('cycles', _('Charge cycles')), ('tech', _('Type')))}
+        icons = {'charge': ('battery-good-symbolic', 'green'), 'capacity': ('battery-full-charging-symbolic', 'green'),
+                 'design': ('battery-level-100-charged-symbolic', 'teal'), 'health': ('emblem-system-symbolic', 'pink'),
+                 'cycles': ('view-refresh-symbolic', 'blue'), 'tech': ('dialog-information-symbolic', 'slate')}
+        for key, row in self.bat_rows.items():
+            decorate((row, *icons[key]))
+            health.add(row)
+        prefs.add(health)
+
+        # like Android: top battery users (the service's estimate, on battery only)
+        self.usage_group = Adw.PreferencesGroup(title=_('Apps Using the Most Battery'), description=_(
+            "An estimate: the screen's share and the idle baseline are subtracted from the power measured on "
+            'battery, and the rest is split between apps by CPU and GPU usage. Time plugged in is not counted. '
+            'Click an app for details, to quit it or to uninstall it.'))
+        self.system_usage_group = Adw.PreferencesGroup(title=_('System'), description=_(
+            'Screen, idle consumption, desktop and background services.'))
+        self.usage_period = 'charge'
+        period = toggle_group([('charge', _('Since last charge'), None), ('day', _('Last 24 hours'), None)],
+                              lambda name: name and (setattr(self, 'usage_period', name), self._update_usage()))
+        period.set_active_name('charge')
+        # doesn't fit next to the title (long description): on its own row
+        period_row = Adw.ActionRow(title=_('Period'))
+        period_row.add_suffix(period)
+        decorate((period_row, 'preferences-system-time-symbolic', 'blue'))
+        self.usage_group.add(period_row)
+        self.usage_rows = []
+        prefs.add(self.usage_group)
+        prefs.add(self.system_usage_group)
+        self._update_usage()
+        GLib.timeout_add_seconds(60, lambda: self.is_suspended() or self._update_usage() or True)
+
+        care = self.care_group = Adw.PreferencesGroup(title=_('Battery Care'), description=_(
+            'If the computer is mostly plugged in, keeping the battery full all the time wears it out. '
+            'The equivalent of the battery protection mode in Monster Control Center.'))
+        self.priority_row = Adw.ComboRow(title=_('Charging priority'),
+                                         model=Gtk.StringList.new([t for _, t, _ in CHARGE_PRIORITIES]))
+        self.priority_row.connect('notify::selected', self._on_charge_choice, 'charging-priority', CHARGE_PRIORITIES)
+        self.profile_row = Adw.ComboRow(title=_('Charging profile'),
+                                        model=Gtk.StringList.new([t for _, t, _ in CHARGE_PROFILES]))
+        self.profile_row.connect('notify::selected', self._on_charge_choice, 'charging-profile', CHARGE_PROFILES)
+        decorate((self.priority_row, 'ac-adapter-symbolic', 'orange'),
+                 (self.profile_row, 'battery-good-symbolic', 'green'))
+        care.add(self.priority_row)
+        care.add(self.profile_row)
+        prefs.add(care)
+        return prefs
+
+    def _update_usage(self):
+        data = read_json(USAGE_FILE)
+        if not isinstance(data, dict):
+            data = {}
+        if self.usage_period == 'charge':
+            since = (data.get('charge') or {}).get('start')
+            totals = dict((data.get('charge') or {}).get('wh') or {})
+            note = _('since {date}').format(date=since.replace('T', ' ')) if since else ''
+        else:
+            limit = time.strftime('%Y-%m-%dT%H', time.localtime(time.time() - 86400))
+            totals = {}
+            for hour, bucket in (data.get('hourly') or {}).items():
+                if hour >= limit:
+                    for key, wh in bucket.items():
+                        totals[key] = totals.get(key, 0) + wh
+            note = _('in the last 24 hours')
+        for group, row in self.usage_rows:
+            group.remove(row)
+        self.usage_rows = []
+
+        def add(group, row):
+            group.add(row)
+            self.usage_rows.append((group, row))
+        total = sum(totals.values())
+        self.system_usage_group.set_visible(total >= 0.01)
+        if total < 0.01:
+            add(self.usage_group, Adw.ActionRow(title=_('No data yet'),
+                                                subtitle=_('Measured every minute while on battery')))
+            return
+        # apps the user opened (those with a .desktop file and terminal programs) are separate from the
+        # system (screen, idle, desktop, background services); small shares go to "Other ..." in both
+        user, system, small = [], {}, 0
+        for key, wh in totals.items():
+            name, icon, known = usage_entry(key)
+            if known and (key.startswith('terminal:') or key.startswith('app:')):
+                if wh / total >= 0.005:
+                    user.append((key, name, icon, wh))
+                else:
+                    small += wh
+                continue
+            if not known or wh / total < 0.005:
+                name, icon = _('Other background tasks'), Gio.ThemedIcon.new('application-x-executable-symbolic')
+            entry = system.setdefault(name, [0, icon, key])
+            entry[0] += wh
+        user.sort(key=lambda x: -x[3])
+        if small:
+            user.append((None, _('Other apps'), Gio.ThemedIcon.new('application-x-executable-symbolic'), small))
+        system = sorted(((v[2], name, v[1], v[0]) for name, v in system.items()), key=lambda x: -x[3])
+        for group, items, actions in ((self.usage_group, user, True), (self.system_usage_group, system, False)):
+            if not items:
+                add(group, Adw.ActionRow(title=_('None'), subtitle=_('No app used the battery in this period')))
+            for key, name, icon, wh in items[:12]:
+                share = wh / total
+                if share < 0.005:
+                    continue
+                row = Adw.ActionRow(title=name, subtitle=f'{pct(f"{share * 100:.0f}")} · {dec(wh, 2)} Wh',
+                                    activatable=actions and key is not None)
+                row.add_prefix(Gtk.Image(gicon=icon, pixel_size=32))
+                row.add_suffix(Gtk.LevelBar(value=share, valign=Gtk.Align.CENTER, width_request=120))
+                if row.get_activatable():
+                    row.add_suffix(Gtk.Image(icon_name='go-next-symbolic'))
+                    row.connect('activated', lambda _r, k=key, n=name, w=wh, sh=share: self._usage_details(k, n, w, sh))
+                add(group, row)
+        add(self.system_usage_group, Adw.ActionRow(title=_('Total {energy} Wh').format(energy=dec(total)), subtitle=note,
+                                                   css_classes=['property']))
+
+    def _usage_details(self, key, name, wh, share):
+        """App details: processes, package; quit, force quit, uninstall."""
+        pids = usage_pids(key)
+        procs = [(pid, info) for pid in pids if (info := process_info(pid))]
+        source, remove_arg = package_of(key, pids)
+        lines = [_('Battery share: {percent} ({energy} Wh)').format(percent=pct(f'{share * 100:.0f}'),
+                                                                     energy=dec(wh, 2)), source, '']
+        if procs:
+            lines.append(ngettext('Running process ({count}):', 'Running processes ({count}):',
+                                  len(procs)).format(count=len(procs)))
+            for pid, (comm, cpu, rss, cmd) in sorted(procs, key=lambda p: -p[1][1])[:8]:
+                lines.append('  ' + _('{name} (PID {pid}) · CPU {cpu} s · memory {memory} MB').format(
+                    name=comm, pid=pid, cpu=f'{cpu:.0f}', memory=f'{rss:.0f}'))
+            lines.append('')
+            lines.append(_('Command: {command}').format(command=procs[0][1][3][:160] or procs[0][1][0]))
+        else:
+            lines.append(_('Not running right now.'))
+        dialog = Adw.AlertDialog(heading=name, body='\n'.join(lines))
+        dialog.add_response('close', _('OK'))
+        dialog.add_response('remove', _('Uninstall…'))
+        dialog.add_response('kill', _('Force Quit'))
+        dialog.add_response('term', _('Quit'))
+        dialog.set_response_enabled('term', bool(procs))
+        dialog.set_response_enabled('kill', bool(procs))
+        dialog.set_response_enabled('remove', remove_arg is not None)
+        dialog.set_response_appearance('kill', Adw.ResponseAppearance.DESTRUCTIVE)
+        dialog.set_default_response('close')
+        dialog.set_close_response('close')
+
+        def done(_d, response):
+            if response in ('term', 'kill'):
+                sig = signal.SIGTERM if response == 'term' else signal.SIGKILL
+                closed = 0
+                for pid, _info in procs:
+                    try:
+                        os.kill(int(pid), sig)
+                        closed += 1
+                    except OSError:
+                        pass
+                if response == 'term':
+                    text = ngettext('{name}: {count} process quit', '{name}: {count} processes quit', closed)
+                else:
+                    text = ngettext('{name}: {count} process killed', '{name}: {count} processes killed', closed)
+                self.toast(text.format(name=name, count=closed))
+            elif response == 'remove':
+                # GNOME Software opens the app's page and asks for confirmation and authorization itself
+                try:
+                    subprocess.Popen(['gnome-software', remove_arg])
+                except OSError:
+                    self.toast(_('GNOME Software not found'))
+        dialog.connect('response', done)
+        dialog.present(self)
+
+    def _language_group(self):
+        group = Adw.PreferencesGroup(title=_('Language'))
+        names = [name or _('System default') for _code, name in LANGUAGES]
+        row = Adw.ComboRow(title=_('App language'), subtitle=_('The app restarts to apply it'),
+                           model=Gtk.StringList.new(names))
+        row.set_selected([code for code, _name in LANGUAGES].index(app_language()))
+        row.connect('notify::selected', self._on_language)
+        decorate((row, 'preferences-desktop-locale-symbolic', 'blue'))
+        group.add(row)
+        return group
+
+    def _on_language(self, row, _p):
+        code = LANGUAGES[row.get_selected()][0]
+        if code == app_language():
+            return
+        try:
+            APP_SETTINGS.parent.mkdir(parents=True, exist_ok=True)
+            APP_SETTINGS.write_text(json.dumps({'language': code}))
+        except OSError as e:
+            self.toast(str(e))
+            return
+        # restart in the new language, on the same page
+        os.environ.pop('LANGUAGE', None)
+        os.execv(sys.executable, [sys.executable, str(Path(__file__).resolve()), '--page', 'about'])
+
+    def _info_page(self):
+        prefs = Adw.PreferencesPage()
+        group = Adw.PreferencesGroup(title=_('Device Information'))
+        colors = ['blue', 'purple', 'orange', 'teal', 'red', 'green', 'slate', 'pink']
+        icons = ['computer-symbolic', 'applications-system-symbolic', 'media-flash-symbolic', 'emblem-system-symbolic',
+                 'system-run-symbolic', 'drive-removable-media-symbolic', 'dialog-information-symbolic',
+                 'input-keyboard-symbolic']
+        for i, (title, value) in enumerate(device_info()):
+            row = Adw.ActionRow(title=title, subtitle=value, subtitle_selectable=True, css_classes=['property'])
+            decorate((row, icons[i % len(icons)], colors[i % len(colors)]))
+            group.add(row)
+        prefs.add(group)
+        prefs.add(self._language_group())
+        diag = Adw.PreferencesGroup(title=_('Troubleshooting'))
+        row = Adw.ActionRow(title=_('Diagnostic report'), subtitle=_(
+            'Collects driver, service and settings status into one file (in the Documents folder); share this '
+            'file if something goes wrong'))
+        button = Gtk.Button(label=_('Create'), valign=Gtk.Align.CENTER, css_classes=['pill'])
+        button.connect('clicked', lambda *_: self._diagnostics())
+        row.add_suffix(button)
+        decorate((row, 'dialog-information-symbolic', 'blue'))
+        diag.add(row)
+        prefs.add(diag)
+        tools = Adw.PreferencesGroup(title=_('Recommended Tools'), description=_(
+            'Linux equivalents of some Monster Control Center features.'))
+        for title, sub in ((_('Night Light'), _('Settings → Displays: makes the screen warmer in the evening')),
+                           ('MangoHud', _('In-game FPS, temperature and power overlay (sudo dnf install mangohud)')),
+                           ('keyd', _('Key remapping (the equivalent of the key settings in Monster Control Center)'))):
+            tools.add(Adw.ActionRow(title=title, subtitle=sub))
+        prefs.add(tools)
+        return prefs
+
+    # ---- automatic profiles
+
+    def _auto_page(self):
+        prefs = Adw.PreferencesPage()
+        self.auto_config = read_json(AUTO_CONFIG)
+        if not isinstance(self.auto_config, dict):
+            self.auto_config = {}
+        cfg = self.auto_config
+        names = [_("Don't change")] + [label for _, label in PROFILE_NAMES]
+
+        main = Adw.PreferencesGroup(title=_('Automatic Profiles'), description=_(
+            "The Huma Control Center service changes the performance mode by itself based on conditions, even when "
+            "you're logged out. Priority: open app > night hours > plugged in/on battery. When no rule matches, "
+            'it returns to the previous mode; a mode you choose manually is kept until conditions change.'))
+        self.auto_enabled = Adw.SwitchRow(title=_('Change mode by rules'), active=cfg.get('enabled', False))
+        self.auto_status = Adw.ActionRow(title=_('Now'), subtitle='—', css_classes=['property'])
+        decorate((self.auto_enabled, 'preferences-system-time-symbolic', 'purple'),
+                 (self.auto_status, 'emblem-system-symbolic', 'slate'))
+        main.add(self.auto_enabled)
+        main.add(self.auto_status)
+        prefs.add(main)
+
+        power = Adw.PreferencesGroup(title=_('By Power Source'), description=_(
+            'With "Don\'t change" the power mode applies; on battery, if "Power-saving profile on battery" on '
+            'the Power Saving page is on, the Balanced mode runs as Quiet 20 dB. A mode you choose here takes '
+            'priority.'))
+        self.auto_ac = Adw.ComboRow(title=_('When plugged in'), model=Gtk.StringList.new(names))
+        self.auto_bat = Adw.ComboRow(title=_('When on battery'), model=Gtk.StringList.new(names))
+        pnames = [n for n, _ in PROFILE_NAMES]
+        for row, key in ((self.auto_ac, 'on_ac'), (self.auto_bat, 'on_battery')):
+            value = cfg.get(key) or ''
+            row.set_selected(pnames.index(value) + 1 if value in pnames else 0)
+            power.add(row)
+        decorate((self.auto_ac, 'ac-adapter-symbolic', 'orange'), (self.auto_bat, 'battery-good-symbolic', 'green'))
+        prefs.add(power)
+
+        night = Adw.PreferencesGroup(title=_('Night'), description=_('Keep the fan quiet during set hours '
+                                                                      '(e.g. at night).'))
+        night_cfg = cfg.get('night') or {}
+        self.night_on = Adw.SwitchRow(title=_('During night hours'), active=night_cfg.get('enabled', False))
+        self.night_start = Adw.EntryRow(title=_('Start (HH:MM)'), text=night_cfg.get('start', '23:00'))
+        self.night_end = Adw.EntryRow(title=_('End (HH:MM)'), text=night_cfg.get('end', '07:00'))
+        self.night_profile = Adw.ComboRow(title=_('Mode'), model=Gtk.StringList.new(names[1:]))
+        self.night_profile.set_selected(pnames.index(night_cfg.get('profile', 'quiet-20db'))
+                                        if night_cfg.get('profile') in pnames else 3)
+        decorate((self.night_on, 'weather-clear-night-symbolic', 'blue'))
+        for r in (self.night_on, self.night_start, self.night_end, self.night_profile):
+            night.add(r)
+        prefs.add(night)
+
+        apps = self.auto_apps_group = Adw.PreferencesGroup(title=_('Apps'), description=_(
+            'While one of these apps is open, the chosen mode is used. E.g. Quiet 20 dB for the browser on '
+            'battery: the CPU draws less power while you watch videos.'))
+        add = Gtk.MenuButton(label=_('Add'), css_classes=['flat'], valign=Gtk.Align.CENTER)
+        menu = Gio.Menu()
+        menu.append(_('Choose App…'), 'win.auto-pick')
+        menu.append(_('By Command Line…'), 'win.auto-custom')
+        add.set_menu_model(menu)
+        apps.set_header_suffix(add)
+        act = Gio.SimpleAction.new('auto-pick', None)
+        act.connect('activate', lambda *_: self._pick_app_rule())
+        self.add_action(act)
+        act = Gio.SimpleAction.new('auto-custom', None)
+        act.connect('activate', lambda *_: self._custom_app_rule())
+        self.add_action(act)
+        self.auto_rules = list(cfg.get('apps') or [])
+        self.auto_rule_rows = []
+        prefs.add(apps)
+        self._render_rules()
+
+        save = Adw.PreferencesGroup()
+        button = Gtk.Button(label=_('Save'), css_classes=['suggested-action', 'pill'], halign=Gtk.Align.CENTER)
+        button.connect('clicked', lambda *_: self._save_auto())
+        save.add(button)
+        prefs.add(save)
+        return prefs
+
+    def _render_rules(self):
+        for row in self.auto_rule_rows:
+            self.auto_apps_group.remove(row)
+        self.auto_rule_rows = []
+        labels = dict(PROFILE_NAMES)
+        for i, rule in enumerate(self.auto_rules):
+            what = _('while open') if rule.get('app_id') else _('while “{match}” is running').format(
+                match=rule['match'])
+            when = _(', on battery only') if rule.get('battery_only') else ''
+            row = Adw.ActionRow(title=rule['name'], subtitle=f"{what}{when} → {labels.get(rule['profile'], rule['profile'])}")
+            remove = Gtk.Button(icon_name='user-trash-symbolic', css_classes=['flat'], valign=Gtk.Align.CENTER,
+                                tooltip_text=_('Remove'))
+            remove.connect('clicked', lambda _b, i=i: (self.auto_rules.pop(i), self._render_rules()))
+            row.add_suffix(remove)
+            info = DesktopAppInfo.new(rule['app_id'] + '.desktop') if rule.get('app_id') else None
+            if info and info.get_icon():
+                row.add_prefix(Gtk.Image(gicon=info.get_icon(), pixel_size=32))
+            else:
+                decorate((row, 'applications-system-symbolic', 'teal'))
+            self.auto_apps_group.add(row)
+            self.auto_rule_rows.append(row)
+        if not self.auto_rules:
+            row = Adw.ActionRow(title=_('No rules'), subtitle=_('Add one with "Add" at the top right'))
+            self.auto_apps_group.add(row)
+            self.auto_rule_rows.append(row)
+
+    def _add_app_rule(self, name, match, profile, app_id=None, battery_only=False):
+        if any((app_id and r.get('app_id') == app_id) or (match and r['match'] == match) for r in self.auto_rules):
+            self.toast(_('There is already a rule for {name}').format(name=name))
+            return
+        rule = {'name': name, 'match': match, 'profile': profile, 'battery_only': battery_only}
+        if app_id:
+            rule['app_id'] = app_id
+        self.auto_rules.append(rule)
+        self._render_rules()
+        self.toast(_('{name} added; press Save to apply').format(name=name))
+
+    def _pick_app_rule(self):
+        """Search and pick from installed apps (only those on this computer are listed)."""
+        apps = sorted((a for a in Gio.AppInfo.get_all() if a.should_show() and a.get_id()),
+                      key=lambda a: a.get_display_name().casefold())
+        dialog = Adw.AlertDialog(heading=_('App Rule'), body=_('Search for the app and choose it.'))
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        search = Gtk.SearchEntry(placeholder_text=_('Search apps'))
+        listbox = Gtk.ListBox(css_classes=['boxed-list'], selection_mode=Gtk.SelectionMode.SINGLE)
+        for app in apps:
+            row = Adw.ActionRow(title=app.get_display_name(), activatable=True)
+            if app.get_icon():
+                row.add_prefix(Gtk.Image(gicon=app.get_icon(), pixel_size=24))
+            row.app = app
+            listbox.append(row)
+        text = ''
+        listbox.set_filter_func(lambda row: text in row.app.get_display_name().casefold()
+                                or text in row.app.get_id().casefold())
+
+        def changed(entry):
+            nonlocal text
+            text = entry.get_text().strip().casefold()
+            listbox.invalidate_filter()
+        search.connect('search-changed', changed)
+        scroll = Gtk.ScrolledWindow(child=listbox, min_content_height=260, max_content_height=260,
+                                    hscrollbar_policy=Gtk.PolicyType.NEVER)
+        profile = Adw.ComboRow(title=_('Mode'), model=Gtk.StringList.new([label for _, label in PROFILE_NAMES]),
+                               selected=3)
+        battery = Adw.SwitchRow(title=_('On battery only'), active=True)
+        options = Gtk.ListBox(css_classes=['boxed-list'], selection_mode=Gtk.SelectionMode.NONE)
+        options.append(profile)
+        options.append(battery)
+        for w in (search, scroll, options):
+            box.append(w)
+        dialog.set_extra_child(box)
+        dialog.add_response('cancel', _('Cancel'))
+        dialog.add_response('add', _('Add'))
+        dialog.set_response_appearance('add', Adw.ResponseAppearance.SUGGESTED)
+        dialog.set_response_enabled('add', False)
+        listbox.connect('row-selected', lambda _l, row: dialog.set_response_enabled('add', row is not None))
+
+        def done(_d, response):
+            row = listbox.get_selected_row()
+            if response == 'add' and row:
+                app_id = row.app.get_id().removesuffix('.desktop')
+                self._add_app_rule(row.app.get_display_name(), '', PROFILE_NAMES[profile.get_selected()][0],
+                                   app_id, battery.get_active())
+        dialog.connect('response', done)
+        dialog.present(self)
+
+    def _custom_app_rule(self):
+        dialog = Adw.AlertDialog(heading=_('App Rule'), body=_(
+            'Enter some text that appears in the app\'s command line (e.g. "code" or the path of the program).'))
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        name = Gtk.Entry(placeholder_text=_('Name (e.g. VS Code)'))
+        match = Gtk.Entry(placeholder_text=_('Text to look for'))
+        profile = Gtk.DropDown(model=Gtk.StringList.new([label for _, label in PROFILE_NAMES]), selected=2)
+        battery = Gtk.CheckButton(label=_('On battery only'))
+        for w in (name, match, profile, battery):
+            box.append(w)
+        dialog.set_extra_child(box)
+        dialog.add_response('cancel', _('Cancel'))
+        dialog.add_response('add', _('Add'))
+        dialog.set_response_appearance('add', Adw.ResponseAppearance.SUGGESTED)
+
+        def done(_d, response):
+            if response == 'add' and match.get_text().strip():
+                self._add_app_rule(name.get_text().strip() or match.get_text().strip(), match.get_text().strip(),
+                                   PROFILE_NAMES[profile.get_selected()][0], battery_only=battery.get_active())
+        dialog.connect('response', done)
+        dialog.present(self)
+
+    def _save_auto(self):
+        pnames = [n for n, _ in PROFILE_NAMES]
+        pick = lambda row: '' if row.get_selected() == 0 else pnames[row.get_selected() - 1]
+        config = {
+            'enabled': self.auto_enabled.get_active(),
+            'on_ac': pick(self.auto_ac),
+            'on_battery': pick(self.auto_bat),
+            'night': {'enabled': self.night_on.get_active(), 'start': self.night_start.get_text().strip(),
+                      'end': self.night_end.get_text().strip(), 'profile': pnames[self.night_profile.get_selected()]},
+            'apps': self.auto_rules,
+        }
+        data = json.dumps(config, ensure_ascii=False)
+
+        def worker():
+            result = subprocess.run(['pkexec', HELPER, 'automation'], input=data, capture_output=True, text=True)
+            error = None if result.returncode == 0 else (helper_error(result.stderr) or _('Could not save'))
+
+            def done():
+                if not error:
+                    self.auto_config = config   # the "Now" row follows the saved config
+                self.toast(error or _('Automatic profiles saved'))
+                return False
+            GLib.idle_add(done)
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _apply_light(self, data):
+        light = data.get('light')
+        if not (light and isinstance(light.get('value'), (int, float))):
+            return
+        value = light['value']
+        stamp = light.get('time', '')
+        try:
+            when = datetime.fromisoformat(stamp).timestamp()
+        except (TypeError, ValueError):
+            when = 0
+        # don't let an older service measurement overwrite the "Measure Now" result
+        if not (self._manual_light and when <= self._manual_light[1]):
+            for row in self._light_rows():
+                if not (row.get_subtitle() or '').startswith(_('Measuring…')):
+                    row.set_subtitle(self._light_text(value, stamp[11:16]))
+            self._mark_stage(value)
+        self._show_decision()
+
+    def _show_decision(self):
+        d = read_json(BRIGHTNESS_STATE)
+        if not isinstance(d, dict):
+            self.decision_row.set_subtitle(_('No decision yet (made at the first measurement after login)'))
+            return
+        stage = SCREEN_STAGES[d['stage']] if isinstance(d.get('stage'), int) else '?'
+        # the result code written by the extension is shown translated
+        results = {'manual-kept': _('manual setting kept'), 'applied': _('applied'),
+                   'small-difference': _('difference too small')}
+        text = _('{time} · measurement {value} → {stage}, screen target {target} · {result}').format(
+            time=d.get('time', ''), value=d.get('median'), stage=stage, target=pct(d.get('target')),
+            result=results.get(d.get('result'), d.get('result')))
+        if d.get('result') == 'manual-kept':
+            text += ' ' + _('(brightness changed manually at {time}; ends when the ambient light moves to another '
+                            'level)').format(time=d.get('last_manual') or '?')
+        self.decision_row.set_subtitle(text)
+
+    def _sync_method(self):
+        """Levels method shows the percentages; relative method shows sensitivity and full brightness in sunlight."""
+        stages = self.method_row.get_selected() == 0
+        self.stages_group.set_visible(stages)
+        self.sensitivity_row.set_visible(not stages)
+        self.sun_full_row.set_visible(not stages)
+
+    def _anchors(self):
+        return stage_anchors(self.threshold_row.get_value(), self.very_dark_row.get_value(), self.sun_row.get_value())
+
+    def _mark_stage(self, value):
+        """Mark the current ambient level in the screen percentage list."""
+        self._last_light = value
+        current = nearest_stage(value, self._anchors())
+        for i, row in enumerate(self.stage_rows):
+            row.set_subtitle(self._stage_hint(i) + ('  ·  ' + _('NOW') if i == current else ''))
+        self._remember_hint(current)
+
+    def _remember_hint(self, stage=None):
+        """Subtitle of the 'Save' row: which percentage will be stored for which level."""
+        if not hasattr(self, 'remember_row'):
+            return
+        percent = screen_percent()
+        now = (_('Current ambient light: {stage}, screen {percent}.').format(stage=SCREEN_STAGES[stage],
+                                                                             percent=pct(percent))
+               if stage is not None and percent is not None
+               else _('First measure the ambient light with "Measure Now".'))
+        self.remember_row.set_subtitle(
+            now + ' ' + _('Instead of typing a percentage, set the screen to what suits your eyes with the '
+                          'brightness slider (or the brightness keys), then press Save: the current screen percentage '
+                          'is stored for this ambient level, and from then on the screen always goes to this '
+                          'brightness in this light.'))
+
+    def _stage_hint(self, i):
+        a = self._anchors()
+        return [_('Measurement ~{value} and below'), _('Measurement ~{value}'),
+                _('Measurement ~{value} (normal room)'), _('Measurement ~{value} (by a window)'),
+                _('Measurement ~{value} and above (sunlight threshold)')][i].format(value=f'{a[i]:.0f}')
+
+    def _test_presence(self):
+        """Test face detection (as the user, who has camera access)."""
+        camera = 'normal' if self.presence_camera_row.get_selected() == 1 else 'auto'
+        self.toast(_('Checking…'))
+
+        def worker():
+            r = subprocess.run([FACE_TOOL, camera], capture_output=True, text=True)
+            text = (_('The camera is in use by another app: someone is assumed to be there') if r.returncode == 2 else
+                    _("Someone is there: the screen won't dim") if r.stdout.strip() == '1' else
+                    _('Nobody is there: the screen would lock and turn off') if r.stdout.strip() == '0' else
+                    helper_error(r.stderr) or _('Could not check'))
+            GLib.idle_add(lambda: self.toast(text) and False)
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _stage_changed(self, index):
+        """Keep levels increasing from dark to bright: move neighboring levels along if needed."""
+        value = self.stage_rows[index].get_value()
+        self._updating = True
+        for i, row in enumerate(self.stage_rows):
+            if i < index and row.get_value() > value or i > index and row.get_value() < value:
+                row.set_value(value)
+        self._updating = False
+        self._save_kbd_later('screen_stages')
+
+    def _remember_stage(self):
+        """Store the current screen brightness for the current ambient level."""
+        value = getattr(self, '_last_light', None)
+        percent = screen_percent()
+        if value is None or percent is None:
+            self.toast(_('Measure first') if value is None else _('Could not read the screen brightness'))
+            return
+        stage = nearest_stage(value, self._anchors())
+        self.stage_rows[stage].set_value(max(5, min(100, round(percent / 5) * 5)))
+        self.toast(_('Saved: in "{stage}" light the screen is now at {percent}').format(
+            stage=SCREEN_STAGES[stage], percent=pct(int(self.stage_rows[stage].get_value()))))
+
+    def _light_text(self, value, stamp):
+        """Measurement and screen level (same calculation as "NOW" in the level list)."""
+        return f'{value:.0f} · {SCREEN_STAGES[nearest_stage(value, self._anchors())]} ({stamp})'
+
+    def _apply_auto(self, data):
+        state = data.get('auto_state')
+        if not hasattr(self, 'auto_status'):
+            return
+        labels = dict(PROFILE_NAMES)
+        if state and state.get('profile'):
+            self.auto_status.set_subtitle(f"{auto_reason(state)} → {labels.get(state['profile'], state['profile'])}")
+        else:
+            self.auto_status.set_subtitle(_('No rule applies') if self.auto_config.get('enabled') else _('Off'))
+
+    # ---- fan curve
+
+    def _fan_curve_group(self):
+        group = self.curve_group = Adw.PreferencesGroup(title=_('Fan Curve'), description=_(
+            "When off, Monster Control Center's tables are used (each performance mode has its own curve). "
+            'When on, the curve below applies in all modes. Drag the points. For safety the last point is 100% '
+            'and at most 85 °C, and by 70 °C the fan runs at 20% or more; the CPU\'s own thermal protection '
+            '(slowing down, shutting down if needed) is always active.'))
+        self.curve_switch = Adw.SwitchRow(title=_('Custom fan curve'))
+        self.curve_switch.connect('notify::active', self._on_curve_switch)
+        decorate((self.curve_switch, 'hc-fan-symbolic', 'teal'))
+        group.add(self.curve_switch)
+        self.curve_editor = FanCurveEditor(lambda: setattr(self, '_curve_dirty', True))
+        self._curve_dirty = False
+        frame = Gtk.Frame(child=self.curve_editor, css_classes=['card'], margin_top=6, margin_bottom=6)
+        group.add(frame)
+        self.curve_base = Adw.SpinRow.new_with_range(0, 50, 5)
+        self.curve_base.set_title(_('Fan power when cool'))
+        self.curve_base.set_subtitle(_('Below the first point (0 = fan stops)'))
+        self.curve_base.set_value(self.curve_editor.base)
+        self.curve_base.connect('notify::value', self._on_curve_base)
+        group.add(self.curve_base)
+        tools = Gtk.Box(spacing=8, margin_top=10, halign=Gtk.Align.END)
+        presets = Gtk.MenuButton(label=_('Presets'), css_classes=['pill'])
+        menu = Gio.Menu()
+        for name in FAN_PRESETS:
+            menu.append(FAN_PRESET_NAMES[name], f'win.curve-preset::{name}')
+        presets.set_menu_model(menu)
+        act = Gio.SimpleAction.new('curve-preset', GLib.VariantType.new('s'))
+        act.connect('activate', lambda _a, v: (self.curve_editor.set_preset(v.unpack()),
+                                               self.curve_base.set_value(self.curve_editor.base),
+                                               setattr(self, '_curve_dirty', True)))
+        self.add_action(act)
+        for label, fn in ((_('Add Point'), self.curve_editor.add_point), (_('Remove Point'), self.curve_editor.remove_point)):
+            b = Gtk.Button(label=label, css_classes=['pill'])
+            b.connect('clicked', lambda _b, fn=fn: (fn(), setattr(self, '_curve_dirty', True)))
+            tools.append(b)
+        tools.prepend(presets)
+        apply = Gtk.Button(label=_('Apply'), css_classes=['pill', 'suggested-action'])
+        apply.connect('clicked', lambda *_: self._apply_curve())
+        tools.append(apply)
+        group.add(tools)
+        return group
+
+    def _on_curve_base(self, row, _p):
+        if self.curve_editor.set_base(row.get_value()) != row.get_value():
+            # can't exceed the first point's duty: clamp the row too (equal on the re-entrant call)
+            row.set_value(self.curve_editor.base)
+            return
+        self._curve_dirty = True
+
+    def _on_curve_switch(self, row, _p):
+        if self._updating:
+            return
+        if row.get_active():
+            self._apply_curve()
+        else:
+            self._run_root_async([HELPER, 'fan-curve', 'auto'], _('Fan curve: Monster Control Center tables'))
+
+    def _apply_curve(self):
+        table = self.curve_editor.table()
+        self._curve_dirty = False
+        self._updating = True
+        self.curve_switch.set_active(True)
+        self._updating = False
+        self._run_root_async([HELPER, 'fan-curve', ','.join(map(str, table))], _('Custom fan curve applied'))
+
+    def _apply_fan_curve(self, data):
+        value = data.get('fan_curve')
+        if not hasattr(self, 'curve_switch'):
+            return
+        self.curve_group.set_visible(value is not None)
+        if value is None:
+            return
+        custom = value != 'auto'
+        self.curve_switch.set_active(custom)
+        if custom and not self._curve_dirty:
+            try:
+                self.curve_editor.set_table([int(x) for x in value.split()])
+                self.curve_base.set_value(self.curve_editor.base)
+                self._curve_dirty = False
+            except ValueError:
+                pass
+
+    # ---- history
+
+    def _history_page(self):
+        prefs = Adw.PreferencesPage()
+        head = Adw.PreferencesGroup(title=_('History'), description=_(
+            "The Huma Control Center service records every minute (even when you're logged out); kept for 90 days."))
+        row = Adw.ActionRow(title=_('Range'))
+        self.history_range = toggle_group([('1', duration_label(24 * 3600), None)] +
+                                          [(str(d), days_label(d), None) for d in (7, 30, 90)],
+                                          lambda _n: self._load_history())
+        self.history_range.set_active_name('1')
+        row.add_suffix(self.history_range)
+        head.add(row)
+        self.hist_rows = {k: Adw.ActionRow(title=t, css_classes=['property']) for k, t in (
+            ('avg', _('Average draw on battery')), ('max', _('Highest CPU temperature')),
+            ('cap', _('Battery capacity')), ('profile', _('Performance mode breakdown')))}
+        decorate((self.hist_rows['avg'], 'power-profile-balanced-symbolic', 'yellow'),
+                 (self.hist_rows['max'], 'hc-thermometer-symbolic', 'red'),
+                 (self.hist_rows['cap'], 'battery-good-symbolic', 'green'),
+                 (self.hist_rows['profile'], 'power-profile-performance-symbolic', 'purple'))
+        for r in self.hist_rows.values():
+            head.add(r)
+        prefs.add(head)
+        self.charts = {}
+        for key, title, unit, rgba, fixed in (
+                ('watts', _('Power Draw (on Battery)'), ' W', (0.9, 0.65, 0.04, 1), None),
+                ('cpu_c', _('CPU Temperature'), '°', (1.0, 0.47, 0.0, 1), (30, 100)),
+                ('battery', _('Battery Charge'), '%', (0.18, 0.76, 0.49, 1), (0, 100)),
+                ('fan_rpm', _('Fan Speed'), '', (0.11, 0.6, 0.66, 1), None),
+                ('full_wh', _('Battery Capacity (Full Charge)'), ' Wh', (0.84, 0.27, 0.49, 1), None)):
+            group = Adw.PreferencesGroup(title=title)
+            chart = HistoryChart(unit, rgba, fixed)
+            group.add(Gtk.Frame(child=chart, css_classes=['card']))
+            prefs.add(group)
+            self.charts[key] = chart
+        self.alerts_group = Adw.PreferencesGroup(title=_('Recent Alerts'))
+        self.alert_rows = []
+        prefs.add(self.alerts_group)
+        return prefs
+
+    def _load_history(self):
+        if not hasattr(self, 'history_range'):
+            return
+        days = int(self.history_range.get_active_name() or 1)
+        keys = list(self.charts)
+        # if the range changes quickly, don't let an earlier (slow) read overwrite a newer one
+        self._history_gen = generation = getattr(self, '_history_gen', 0) + 1
+
+        def worker():
+            import csv
+            from datetime import datetime as dt
+            since = time.time() - days * 86400
+            rows = []
+            try:
+                with HISTORY_FILE.open() as f:
+                    for r in csv.DictReader(f):
+                        try:
+                            t = dt.fromisoformat(r['time']).timestamp()
+                        except (KeyError, TypeError, ValueError):
+                            continue
+                        if t >= since:
+                            rows.append((t, r))
+            except OSError:
+                pass
+            alerts = read_json(ALERTS_FILE)
+            alerts = alerts.get('alerts', []) if isinstance(alerts, dict) else []
+            # ~130k rows for 90 days: summarize here too so the UI doesn't freeze
+            summary = self._summarize_history(rows, since, keys)
+            GLib.idle_add(lambda: generation == self._history_gen and self._show_history(summary, alerts) and False)
+        threading.Thread(target=worker, daemon=True).start()
+
+    @staticmethod
+    def _summarize_history(rows, since, keys):
+        """Chart points and summary rows (runs in the background)."""
+        def num(v):
+            try:
+                return float(v) if v not in ('', None) else None
+            except ValueError:
+                return None
+        # at most ~600 points: average over buckets
+        span = (since, time.time())
+        bucket = max(60, (span[1] - span[0]) / 600)
+        charts = {}
+        for key in keys:
+            buckets = {}
+            for t, r in rows:
+                v = num(r.get(key))
+                if key == 'watts':
+                    v = -v if v is not None and v < 0 else None   # only power drawn from the battery
+                if v is not None:
+                    buckets.setdefault(int(t // bucket), []).append(v)
+            times = sorted(buckets)
+            charts[key] = ([k * bucket for k in times], [sum(buckets[k]) / len(buckets[k]) for k in times], span)
+        draw = [-w for _, r in rows if (w := num(r.get('watts'))) is not None and w < 0]
+        temps = [v for _, r in rows if (v := num(r.get('cpu_c'))) is not None]
+        caps = [v for _, r in rows if (v := num(r.get('full_wh'))) is not None]
+        profiles = {}
+        for _t, r in rows:
+            if r.get('profile'):   # rows without a readable profile are skipped
+                profiles[r['profile']] = profiles.get(r['profile'], 0) + 1
+        labels = dict(PROFILE_NAMES)
+        total = sum(profiles.values()) or 1
+        # entries rounding to 0% are omitted
+        profiles = {k: v for k, v in profiles.items() if round(100 * v / total) > 0}
+        return charts, {
+            'avg': f'{dec(sum(draw) / len(draw))} W' if draw else _('No records'),
+            'max': f'{max(temps):.0f} °C' if temps else _('No records'),
+            'cap': f'{dec(caps[0])} → {dec(caps[-1])} Wh' if caps else _('No records'),
+            'profile': ', '.join(f"{labels.get(k, k)} {pct(f'{100 * v / total:.0f}')}"
+                                for k, v in sorted(profiles.items(), key=lambda x: -x[1])[:3]) or _('No records'),
+        }
+
+    def _show_history(self, summary, alerts):
+        charts, texts = summary
+        for key, data in charts.items():
+            self.charts[key].set_data(*data)
+        for key, text in texts.items():
+            self.hist_rows[key].set_subtitle(text)
+        for row in self.alert_rows:
+            self.alerts_group.remove(row)
+        self.alert_rows = []
+        for a in reversed(alerts[-5:]):
+            title, text = alert_text(a)
+            row = Adw.ActionRow(title=title, subtitle=f"{a.get('time', '').replace('T', ' ')} · {text}")
+            decorate((row, 'dialog-warning-symbolic', 'red'))
+            self.alerts_group.add(row)
+            self.alert_rows.append(row)
+        if not alerts:
+            row = Adw.ActionRow(title=_('No alerts'), subtitle=_('Watching for overheating, fan failure and battery '
+                                                                 'health'))
+            decorate((row, 'emblem-ok-symbolic', 'green'))
+            self.alerts_group.add(row)
+            self.alert_rows.append(row)
+
+    # ---- diagnostic report
+
+    def _diagnostics(self):
+        def worker():
+            def run(*cmd):
+                try:
+                    r = subprocess.run(cmd, capture_output=True, text=True, timeout=20)
+                    return (r.stdout + r.stderr).strip()
+                except Exception as e:
+                    return f'({e})'
+            parts = [(_('System'), run('uname', '-a')), (_('Driver'), run('modinfo', '-F', 'version', 'qc71_laptop')),
+                     ('DKMS', run('dkms', 'status')),
+                     (_('Modules'), run('sh', '-c', 'lsmod | grep -E "qc71|uniwill|led_class"')),
+                     (_('Services'), run('systemctl', 'is-active', 'huma-control-service', 'huma-control-keyboard',
+                                         'tuned', 'tuned-ppd')),
+                     (_('Power mode'), run('tuned-adm', 'active')),
+                     (_('Module options'), run('sh', '-c', 'grep -H . /etc/modprobe.d/qc71*')),
+                     (_('Huma Control Center settings'), run('sh', '-c', 'grep -H . /etc/huma-control/* 2>&1')),
+                     (_('Driver files'), run('sh', '-c', f'cd {QC71} && grep -H . * 2>/dev/null')),
+                     (_('Wireless'), run('rfkill', 'list')),
+                     (_('Extensions'), run('gnome-extensions', 'list', '--enabled')),
+                     (_('Driver log'), run('journalctl', '-b', '-k', '--no-pager', '-g', 'qc71', '-n', '80')),
+                     (_('Service log'), run('journalctl', '-b', '--no-pager', '-n', '60', '-u', 'huma-control-service',
+                                            '-u', 'huma-control-keyboard'))]
+            folder = Path(GLib.get_user_special_dir(GLib.UserDirectory.DIRECTORY_DOCUMENTS) or GLib.get_home_dir())
+            path = folder / f'huma-control-diagnostics-{time.strftime("%Y%m%d-%H%M")}.txt'
+            text = _('Huma Control Center diagnostic report — {time}').format(time=time.strftime('%Y-%m-%d %H:%M')) + \
+                '\n\n' + '\n\n'.join(f'== {title} ==\n{body}' for title, body in parts) + '\n'
+            try:
+                path.write_text(text)
+                message = _('Diagnostic report: {path}').format(path=path)
+                Gio.AppInfo.launch_default_for_uri(folder.as_uri(), None)
+            except OSError as e:
+                message = _('Could not write the diagnostic report: {error}').format(error=e)
+            GLib.idle_add(lambda: self.toast(message) and False)
+        self.toast(_('Preparing diagnostic report…'))
+        threading.Thread(target=worker, daemon=True).start()
+
+    # ---- periodic refresh
+
+    def refresh(self, full=False):
+        """Reads the hardware in the background. Controller (EC) reads over WMI are slow
+        (~30-80 ms), so fast-changing values are read every 2 s and settings every 10 s
+        or right after a change."""
+        # every controller read means dozens of interrupts (~100/s with the window focused):
+        # every 2 s when focused; every 10 s in the background, and only values that don't touch
+        # the controller (temperature, battery, power mode); never when minimized or hidden.
+        # Driver-side changes (mode key, Fan Boost) arrive via udev, and focusing triggers a full read.
+        if not full and self.is_suspended():
+            return GLib.SOURCE_CONTINUE
+        light = not full and not self.is_active()
+        if light and self._tick % 5:
+            self._tick += 1
+            return GLib.SOURCE_CONTINUE
+        full = full or (not light and self._tick % 5 == 0)
+        self._tick += 1
+        if self._reading:
+            # a read is in progress: do a full read when it finishes
+            self._want_full |= full
+        else:
+            self._reading = True
+            threading.Thread(target=self._gather, args=(full, self._generation, light), daemon=True).start()
+        return GLib.SOURCE_CONTINUE
+
+    def _gather(self, full, generation, light=False):
+        data = {}
+        try:
+            data = {
+                'temp': cpu_temp(),
+                # in the background the fan isn't read from the controller: show the last value
+                'fan': self._last_fan if light and self._last_fan else fan_state(self._cache.get('fan_boost')),
+                'fan_duty': self._last_duty if light else read(QC71 / 'fan_duty'),
+                'bat': self.up.battery(),
+                'profile': self.up.profile(),
+                'auto_state': read_json(AUTO_STATE),
+                'light': read_json(LIGHT_STATE),
+            }
+            self._last_fan, self._last_duty = data['fan'], data['fan_duty']
+            if full:
+                data |= {
+                    'kbd': self.up.kbd_brightness(),
+                    'ppd': read('/etc/tuned/ppd.conf', ''),
+                    'card_reader': CARD_READER_RULE.exists(),
+                    'card_off': CARD_READER_OFF.exists(),
+                    'ac_recover': ac_recover(),
+                    'battery': battery_info(),
+                }
+                for attr in ('fn_lock', 'super_key_lock', 'charging_priority', 'charging_profile',
+                             'performance_profile', 'fan_boost', 'touchpad_toggle_enable', 'usb_powershare',
+                             'fan_curve'):
+                    data[attr] = read(QC71 / attr)
+        except Exception as e:  # a read error must not stop the UI
+            print(_('read error:'), e, file=sys.stderr)
+        GLib.idle_add(self._apply, data, full, generation)
+
+    def _apply(self, data, full, generation):
+        self._reading = False
+        if self._want_full:
+            self._want_full = False
+            GLib.idle_add(lambda: self.refresh(full=True) and False)
+        # don't touch the controls if a change is in progress or finished during the read
+        controls = self._pending == 0 and generation == self._generation
+        if full and controls:
+            self._cache |= data
+        self._updating = True
+        try:
+            parts = [self._apply_overview]
+            if controls:
+                parts += [self._apply_fan_mode, self._apply_perf, self._apply_keys, self._apply_power,
+                          self._apply_auto, self._apply_light, self._apply_fan_curve]
+            for part in parts:
+                try:
+                    part(self._cache | data if controls else data)
+                except Exception as e:
+                    print(f'{part.__name__}:', e, file=sys.stderr)
+        finally:
+            self._updating = False
+        return GLib.SOURCE_REMOVE
+
+    def _apply_overview(self, data):
+        temp, fan, bat = data.get('temp'), data.get('fan'), data.get('bat')
+        self.temps.append(temp)
+        self.rpms.append(fan['rpm'] if fan else None)
+        self.graph.queue_draw()
+
+        self.card_cpu.set(f'{temp:.0f}' if temp else '—', '°C',
+                          _('Cool') if temp and temp < 55 else _('Warm') if temp and temp < 75 else _('Hot') if temp else '',
+                          None if not temp else 'good' if temp < 55 else 'warn' if temp < 75 else 'bad')
+        if fan:
+            rpm, fan_temp = fan['rpm'], fan['temp']
+            fan_temp = '—' if fan_temp is None else f'{fan_temp:.0f} °C'
+            self.card_fan.set('—' if rpm is None else _('Stopped') if rpm == 0 else f'{rpm:,}'.replace(',', THOUSANDS_SEP),
+                              '' if not rpm else _('rpm'),
+                              _('{mode} · sensor {temperature}').format(
+                                  mode=_('Fan Boost') if fan['mode'] == 'max' else _('Automatic'),
+                                  temperature=fan_temp))
+            self.row_rpm.set_subtitle('—' if rpm is None else _('Stopped') if rpm == 0 else
+                                      _('{rpm} rpm').format(rpm=rpm))
+            self.row_fan_temp.set_subtitle(fan_temp)
+            duty = data.get('fan_duty')
+            self.row_duty.set_visible(duty is not None)
+            self.row_duty.set_subtitle(pct(duty) if duty is not None else '')
+            self.chip_fan.set_label(_('Fan Boost') if fan['mode'] == 'max' else _('Fan: automatic'))
+        else:
+            self.card_fan.set('—', '', _('Driver not loaded'))
+            self.chip_fan.set_label(_('Fan: unknown'))
+        self.fan_toggle.get_parent().set_sensitive(bool(fan))
+        self.fan_missing.set_visible(not fan)
+        self.row_cpu_temp.set_subtitle(f'{temp:.0f} °C' if temp else '—')
+
+        if not bat:
+            self.card_power.set('—', '', _('UPower not available'))
+            self.card_battery.set('—', '', '')
+            return
+        # UPower states: 1 charging, 2 discharging, 4 full, 5 pending charge
+        state, rate = bat['state'], bat['rate']
+        if state == 2:
+            self.card_power.set(dec(rate), 'W',
+                                _('Low') if rate < 8 else _('Medium') if rate < 15 else _('High'))
+            self.card_battery.set(f'{bat["percent"]:.0f}', '%',
+                                  _('{time} left').format(time=fmt_time(bat['to_empty'])) if bat['to_empty']
+                                  else _('Discharging'))
+        else:
+            self.card_power.set(_('Plugged in'), '',
+                                _('Charging +{power} W').format(power=dec(rate)) if state == 1 and rate else '')
+            self.card_battery.set(f'{bat["percent"]:.0f}', '%',
+                                  _('Full') if state == 4 else _('Pending charge') if state == 5 else
+                                  _('{time} until full').format(time=fmt_time(bat['to_full']))
+                                  if state == 1 and bat['to_full'] else
+                                  _('Charging') if state == 1 else '')
+
+    def _apply_fan_mode(self, data):
+        # only while controls are updated, so it isn't reverted while a command runs
+        fan = data.get('fan')
+        if fan:
+            self.fan_toggle.set_active_name(fan['mode'])
+
+    def _apply_perf(self, data):
+        value = data.get('performance_profile')
+        self.perf_group.set_visible(value is not None)
+        self.perf_missing.set_visible(value is None)
+        if value is None:
+            return
+        mode, _sep, level = value.partition('-')
+        names = [n for n, _, _ in PERF_LEVELS.get(mode, [])]
+        self.perf = (mode, names.index(level)) if level in names else None
+        levels = PERF_LEVELS[self.perf[0] if self.perf else 'balanced']
+        for i, (_n, label, _w) in enumerate(levels):
+            self.perf_level_toggle.get_toggle_by_name(str(i)).set_label(label)
+        if self.perf:
+            self.perf_mode_toggle.set_active_name(mode)
+            self.perf_level_toggle.set_active_name(str(self.perf[1]))
+            self.perf_level_row.set_subtitle(_('CPU power limit {limit}').format(limit=levels[self.perf[1]][2]))
+        else:
+            # a setting left over from Windows or unknown
+            self.perf_mode_toggle.set_active(Gtk.INVALID_LIST_POSITION)
+            self.perf_level_toggle.set_active(Gtk.INVALID_LIST_POSITION)
+            self.perf_level_row.set_subtitle(_("The controller's setting wasn't recognized; choose a mode"))
+        boost = data.get('fan_boost')
+        self.boost_row.set_visible(boost is not None)
+        self.boost_row.set_active(boost == '1')
+        names = dict(PERF_MODES)
+        self.chip_profile.set_label(f'{names[self.perf[0]]} · {levels[self.perf[1]][1]}' if self.perf else _('Custom mode'))
+        for css in ('balanced', 'quiet', 'high', 'unknown'):
+            self.mode_banner.remove_css_class(css)
+        if self.perf:
+            kind = 'quiet' if self.perf[0] == 'quiet' else 'high' if self.perf[1] == 2 else 'balanced'
+            self.mode_banner.add_css_class(kind)
+            self.mode_icon.set_from_icon_name({'quiet': 'power-profile-power-saver-symbolic',
+                                               'high': 'power-profile-performance-symbolic'}.get(
+                                                   kind, 'power-profile-balanced-symbolic'))
+            self.mode_title.set_label(f'{names[self.perf[0]]} · {levels[self.perf[1]][1]}')
+            self.mode_sub.set_label(_('CPU power limit {limit}').format(limit=levels[self.perf[1]][2]) +
+                                    (' · ' + _('Fan Boost on') if boost == '1' else ''))
+        else:
+            self.mode_banner.add_css_class('unknown')
+            self.mode_title.set_label(_('Custom mode'))
+            self.mode_sub.set_label(_("The controller's setting wasn't recognized; choose a mode below"))
+
+    def _apply_keys(self, data):
+        kbd = data.get('kbd')
+        if kbd is not None:
+            self.kbd_toggle.set_active_name(str(min(kbd, 2)))
+        fn = data.get('fn_lock')
+        self.fn_row.set_visible(fn is not None)
+        self.fn_row.set_active(fn == '1')
+        lock = data.get('super_key_lock')
+        self.super_row.set_visible(lock is not None)
+        self.super_row.set_active(lock == '1')
+        touchpad = data.get('touchpad_toggle_enable')
+        self.touchpad_row.set_visible(touchpad is not None)
+        self.touchpad_row.set_active(touchpad == '1')
+
+    def _apply_power(self, data):
+        profile = data.get('profile')
+        self.profile_toggle.get_parent().set_sensitive(profile is not None)
+        if profile:
+            self.profile_toggle.set_active_name(profile)
+            if data.get('performance_profile') is None:
+                self.chip_profile.set_label({'power-saver': _('Power Saver'), 'balanced': _('Balanced'),
+                                             'performance': _('Performance')}.get(profile, profile))
+        for row, attr, options in ((self.priority_row, 'charging_priority', CHARGE_PRIORITIES),
+                                   (self.profile_row, 'charging_profile', CHARGE_PROFILES)):
+            value = data.get(attr)
+            row.set_visible(value is not None)
+            names = [n for n, _, _ in options]
+            if value in names:
+                row.set_selected(names.index(value))
+                row.set_subtitle(options[names.index(value)][2])
+        self.care_group.set_visible(self.priority_row.get_visible() or self.profile_row.get_visible())
+        self.battery_profile_row.set_active('\nbalanced=huma-control-battery' in data.get('ppd', ''))
+        ac, usb = data.get('ac_recover'), data.get('usb_powershare')
+        self.ac_row.set_visible(ac is not None)
+        self.ac_row.set_active(bool(ac))
+        self.usb_row.set_visible(usb is not None)
+        self.usb_row.set_active(usb == '1')
+        self.off_group.set_visible(ac is not None or usb is not None)
+        info, bat = data.get('battery'), data.get('bat')
+        if info:
+            r = self.bat_rows
+            status = {'Charging': _('charging'), 'Discharging': _('discharging'), 'Full': _('full'),
+                      'Not charging': _('not charging')}.get(info['status'], info['status'])
+            r['charge'].set_subtitle(pct(f'{bat["percent"]:.0f}') + f' · {status}' if bat else status)
+            r['capacity'].set_subtitle(f'{dec(info["full"])} Wh')
+            r['design'].set_subtitle(f'{dec(info["design"])} Wh')
+            r['health'].set_subtitle(pct(f'{100 * info["full"] / info["design"]:.0f}') if info['design'] else '—')
+            r['cycles'].set_subtitle(str(info['cycles']) if info['cycles'] else _('Not reported by the controller'))
+            r['tech'].set_subtitle(info['tech'] or '—')
+        if 'card_off' in data:
+            mode = 'off' if data['card_off'] else 'sleep' if data.get('card_reader') else 'on'
+            i = [m for m, _, _ in CARD_MODES].index(mode)
+            self.card_row.set_selected(i)
+            self.card_row.set_subtitle(CARD_MODES[i][2])
+        self._sync_kbd_texts()
+
+    # ---- user changes
+
+    def _on_kbd_signal(self, _proxy, _sender, signal, params):
+        # reflect changes made with Fn+F6 immediately
+        if signal.startswith('BrightnessChanged'):
+            self._updating = True
+            self.kbd_toggle.set_active_name(str(min(params.unpack()[0], 2)))
+            self._updating = False
+
+    def _on_kbd_level(self, name):
+        if not self._updating and name is not None and self.up.kbd:
+            self._begin()
+            self.up.kbd.call('SetBrightness', GLib.Variant('(i)', (int(name),)), 0, -1, None,
+                             lambda proxy, res: self._dbus_done(proxy, res, _('Keyboard backlight: {level}').format(
+                                 level=KBD_LEVELS[int(name)])))
+
+    def _dbus_done(self, proxy, res, done_text):
+        try:
+            proxy.call_finish(res)
+            error = None
+        except GLib.Error as e:
+            error = e.message
+        self._end(error, done_text)
+
+    def _ambient_page(self):
+        """Ambient light measured with the camera: keyboard backlight, screen brightness and OSD."""
+        prefs = Adw.PreferencesPage()
+        cfg = self._kbd_cfg
+
+        measure_group = Adw.PreferencesGroup(title=_('Measurement'), description=_(
+            'This laptop has no light sensor; ambient light is measured with the camera. During a measurement '
+            'the camera light turns on briefly (~1.5 s) and no image is saved; nothing is measured while another '
+            'app is using the camera (a meeting). While you are at the computer it is measured at the '
+            'measurement interval, when you come back from a break and after Fn+F6. The scale has no upper '
+            'limit: dark room ~0-20, normal room ~50-255; in brighter light (by a window, sunlight) the camera '
+            'shortens the exposure and the value goes into the hundreds or thousands.'))
+        self.light_row = Adw.ActionRow(title=_('Last measurement'), subtitle='—', css_classes=['property'])
+        measure = Gtk.Button(label=_('Measure Now'), valign=Gtk.Align.CENTER, css_classes=['pill'])
+        measure.connect('clicked', lambda *_: self._measure_light())
+        self.light_row.add_suffix(measure)
+        self.interval_row = Adw.ComboRow(title=_('Measurement interval'),
+                                         model=Gtk.StringList.new([label for _, label in LIGHT_INTERVALS]))
+        seconds = cfg.get('measure_interval_s', 600)
+        self.interval_row.set_selected(next((i for i, (sec, _) in enumerate(LIGHT_INTERVALS) if sec == seconds), 5))
+        self.interval_row.connect('notify::selected', lambda *_a: self._updating or self._save_kbd(_('Measurement interval saved'),
+                                                                                             'measure_interval_s'))
+        decorate((self.light_row, 'display-brightness-symbolic', 'yellow'),
+                 (self.interval_row, 'preferences-system-time-symbolic', 'blue'))
+        measure_group.add(self.light_row)
+        measure_group.add(self.interval_row)
+        prefs.add(measure_group)
+
+        # description depends on the power-saving setting, see _sync_kbd_texts
+        kbd_group = self.ambient_kbd_group = Adw.PreferencesGroup(title=_('Keyboard Backlight'))
+        self.dark_row = Adw.SwitchRow(title=_('Turn on/off automatically'),
+                                      subtitle=_('Very dark → bright, dark → dim, bright → off'),
+                                      active=cfg.get('dark_turn_on', False))
+        self.dark_row.connect('notify::active', lambda r, _p: self._updating or self._save_kbd(
+            _('The keyboard backlight will turn on and off with the ambient light') if r.get_active() else
+            _("The keyboard backlight won't change with the ambient light"), 'dark_turn_on'))
+        self.threshold_row = Adw.SpinRow.new_with_range(1, 200, 1)
+        self.threshold_row.set_title(_('Dark threshold (dim)'))
+        self.threshold_row.set_subtitle(_('Below it is dark (backlight dim), above 1.5 times it is bright '
+                                          '(backlight off)'))
+        self.threshold_row.set_value(cfg.get('dark_threshold', 20))
+        now_dark = Gtk.Button(label=_("It's Dark Now"), valign=Gtk.Align.CENTER, css_classes=['pill'],
+                              tooltip_text=_('Set it with the room as dark as you like: makes the threshold slightly '
+                                             'above the current measurement'))
+        now_dark.connect('clicked', lambda *_: self._measure_light(calibrate=True))
+        self.threshold_row.add_suffix(now_dark)
+        self.threshold_row.connect('notify::value', lambda *_: self._updating or self._save_kbd_later(
+            'dark_threshold', 'very_dark_threshold'))
+        self.very_dark_row = Adw.SpinRow.new_with_range(1, 200, 1)
+        self.very_dark_row.set_title(_('Very dark threshold'))
+        self.very_dark_row.set_subtitle(_('Below this measurement the keyboard backlight is bright'))
+        self.very_dark_row.set_value(cfg.get('very_dark_threshold', 8))
+        very_now = Gtk.Button(label=_("It's Very Dark Now"), valign=Gtk.Align.CENTER, css_classes=['pill'])
+        very_now.connect('clicked', lambda *_: self._measure_light(calibrate='very-dark'))
+        self.very_dark_row.add_suffix(very_now)
+        self.very_dark_row.connect('notify::value', lambda *_: self._updating or self._save_kbd_later(
+            'dark_threshold', 'very_dark_threshold'))
+        decorate((self.dark_row, 'keyboard-brightness-symbolic', 'purple'),
+                 (self.threshold_row, 'weather-clear-night-symbolic', 'slate'),
+                 (self.very_dark_row, 'weather-clear-night-symbolic', 'purple'))
+        for r in (self.dark_row, self.threshold_row, self.very_dark_row):
+            kbd_group.add(r)
+        prefs.add(kbd_group)
+
+        screen_group = Adw.PreferencesGroup(title=_('Screen Brightness'), description=_(
+            'The current brightness counts as your preference for the current light: the screen dims as the room '
+            'gets darker and brightens as it gets lighter. Moving the brightness slider makes the light at that '
+            'moment the new reference. It can also be turned on and off from the arrow next to the brightness '
+            'slider in Quick Settings.'))
+        self.screen_row = Adw.SwitchRow(title=_('Adjust to ambient light'),
+                                        subtitle=_('The brightness slider stays as fine-tuning'),
+                                        active=cfg.get('screen_auto', False))
+        self.screen_row.connect('notify::active', lambda r, _p: self._updating or self._save_kbd(
+            _('Automatic screen brightness turned on') if r.get_active() else
+            _('Automatic screen brightness turned off'), 'screen_auto'))
+        self.sensitivity_row = Adw.ComboRow(title=_('Sensitivity'),
+                                            subtitle=_('How much ambient light changes affect the screen'),
+                                            model=Gtk.StringList.new([pgettext('sensitivity', 'Low'),
+                                                                      pgettext('sensitivity', 'Medium'),
+                                                                      pgettext('sensitivity', 'High')]))
+        self.sensitivity_row.set_selected(cfg.get('screen_sensitivity', 2) - 1)
+        self.sensitivity_row.connect('notify::selected', lambda *_a: self._updating or self._save_kbd(_('Sensitivity saved'),
+                                                                                                'screen_sensitivity'))
+        self.sun_full_row = Adw.SwitchRow(title=_('Full brightness in sunlight'),
+                                          subtitle=_('In sunlight or very bright surroundings the screen goes to '
+                                                     '100%, wherever the slider is'),
+                                          active=cfg.get('sun_full', True))
+        self.sun_full_row.connect('notify::active', lambda r, _p: self._updating or self._save_kbd(
+            _('Full brightness in sunlight turned on') if r.get_active() else
+            _('Full brightness in sunlight turned off'), 'sun_full'))
+        self.sun_row = Adw.SpinRow.new_with_range(256, 25000, 50)
+        self.sun_row.set_title(_('Sunlight threshold'))
+        self.sun_row.set_subtitle(_('The scale has no upper limit: dark room ~0-20, normal room ~50-255, by a '
+                                    'window hundreds, sunlight thousands. Between 255 and this threshold the screen '
+                                    'brightens step by step'))
+        self.sun_row.set_value(cfg.get('sun_threshold', 1000))
+        sun_now = Gtk.Button(label=_("It's Sunny Now"), valign=Gtk.Align.CENTER, css_classes=['pill'],
+                             tooltip_text=_('Press while in sunlight: the threshold becomes slightly below the '
+                                            'current measurement'))
+        sun_now.connect('clicked', lambda *_: self._measure_light(calibrate='sun'))
+        self.sun_row.add_suffix(sun_now)
+        self.sun_row.connect('notify::value', lambda *_: self._updating or self._save_kbd_later('sun_threshold'))
+        self.sun_full_row.bind_property('active', self.sun_row, 'sensitive', GObject.BindingFlags.SYNC_CREATE)
+        self.method_row = Adw.ComboRow(title=_('Method'), model=Gtk.StringList.new([_('Levels'), _('Relative')]),
+                                       subtitle=_('Levels: a set percentage for each light level · Relative: based '
+                                                  'on the slider'))
+        self.method_row.set_selected(0 if cfg.get('screen_method', 'stages') == 'stages' else 1)
+        self.method_row.connect('notify::selected', lambda *_a: (self._sync_method(), self._updating or
+                                                                self._save_kbd(_('Method saved'), 'screen_method')))
+        decorate((self.screen_row, 'video-display-symbolic', 'orange'),
+                 (self.method_row, 'view-list-symbolic', 'blue'),
+                 (self.sensitivity_row, 'display-brightness-symbolic', 'purple'),
+                 (self.sun_full_row, 'weather-clear-symbolic', 'yellow'),
+                 (self.sun_row, 'weather-clear-symbolic', 'orange'))
+        # the extension's last decision: why the screen is at this brightness
+        self.decision_row = Adw.ActionRow(title=_('Last decision'), subtitle='—', css_classes=['property'])
+        decorate((self.decision_row, 'dialog-information-symbolic', 'slate'))
+        for r in (self.screen_row, self.method_row, self.decision_row, self.sensitivity_row, self.sun_full_row, self.sun_row):
+            screen_group.add(r)
+        prefs.add(screen_group)
+
+        # levels method: a screen percentage per level; smooth transition for measurements in between
+        self.stages_group = Adw.PreferencesGroup(title=_('Screen Percentages (%)'), description=_(
+            'The screen percentage for each light level. If the measurement is between two levels, the screen '
+            'moves step by step to a value in between. If you adjust it with the slider, it is left alone until '
+            'the light moves to another level; press Save below to make it permanent.'))
+        percents = cfg.get('screen_stages') or SCREEN_PERCENTS
+        icons = [('weather-clear-night-symbolic', 'purple'), ('weather-clear-night-symbolic', 'slate'),
+                 ('display-brightness-symbolic', 'yellow'), ('weather-few-clouds-symbolic', 'orange'),
+                 ('weather-clear-symbolic', 'red')]
+        self.stage_rows = []
+        for i, name in enumerate(SCREEN_STAGES):
+            row = Adw.SpinRow.new_with_range(5, 100, 5)
+            row.set_title(name)
+            row.set_subtitle(self._stage_hint(i))
+            row.set_value(percents[i])
+            row.connect('notify::value', lambda r, _p, i=i: self._updating or self._stage_changed(i))
+            decorate((row, *icons[i]))
+            self.stages_group.add(row)
+            self.stage_rows.append(row)
+        # instead of typing a percentage: adjust the screen by eye and store it for the current level
+        remember = self.remember_row = Adw.ActionRow(title=_('Save the current brightness for this light'))
+        remember_button = Gtk.Button(label=_('Save'), valign=Gtk.Align.CENTER, css_classes=['pill'])
+        remember_button.connect('clicked', lambda *_: self._remember_stage())
+        remember.add_suffix(remember_button)
+        self._remember_hint()
+        decorate((remember, 'document-save-symbolic', 'green'))
+        self.stages_group.add(remember)
+        prefs.add(self.stages_group)
+        self._sync_method()
+
+        presence = Adw.PreferencesGroup(title=_('When Nobody Is There'), description=_(
+            "When the keyboard and touchpad aren't touched, the camera takes one look: if nobody is there, the "
+            'screen locks and turns off (it looks again after 10 s to be sure); if someone is there (watching a '
+            'video, reading), dimming is postponed and it looks again; the interval grows each time someone is '
+            'found (1, 2, 4, 8 times). The camera light turns on only when idle, for ~1 s per look. No image is '
+            'saved; if the camera is in use for a meeting, someone is assumed to be there.'))
+        installed = os.access(FACE_TOOL, os.X_OK)
+        self.presence_row = Adw.SwitchRow(
+            title=_('Lock and turn off the screen when nobody is there'),
+            subtitle=_('Face detection') if installed else _('Not installed: ./install.sh'),
+            active=cfg.get('presence', False), sensitive=installed)
+        self.presence_row.connect('notify::active', lambda r, _p: self._updating or self._save_kbd(
+            _('Presence check turned on') if r.get_active() else _('Presence check turned off'), 'presence'))
+        test = Gtk.Button(label=_('Look Now'), valign=Gtk.Align.CENTER, css_classes=['pill'], sensitive=installed)
+        test.connect('clicked', lambda *_: self._test_presence())
+        self.presence_row.add_suffix(test)
+        self.presence_delay_row = Adw.ComboRow(
+            title=_('When to look'), subtitle=_('After this long without input'),
+            model=Gtk.StringList.new([label for _, label in PRESENCE_DELAYS]))
+        self.presence_delay_row.set_selected(next(
+            (i for i, (sec, _) in enumerate(PRESENCE_DELAYS) if sec == cfg.get('presence_s', 60)), 1))
+        self.presence_delay_row.connect('notify::selected', lambda *_a: self._updating or self._save_kbd(
+            _('Saved'), 'presence_s'))
+        # without an IR camera the option is hidden and the normal camera is used
+        self.presence_camera_row = Adw.ComboRow(
+            title=_('Camera'), subtitle=_('The IR camera also sees in the dark'), visible=has_ir_camera(),
+            model=Gtk.StringList.new([_('IR camera'), _('Normal camera')]))
+        self.presence_camera_row.set_selected(1 if cfg.get('presence_camera') == 'normal' else 0)
+        self.presence_camera_row.connect('notify::selected', lambda *_a: self._updating or self._save_kbd(
+            _('Saved'), 'presence_camera'))
+        decorate((self.presence_row, 'avatar-default-symbolic', 'blue'),
+                 (self.presence_delay_row, 'preferences-system-time-symbolic', 'slate'),
+                 (self.presence_camera_row, 'camera-web-symbolic', 'purple'))
+        presence.add(self.presence_row)
+        for r in (self.presence_delay_row, self.presence_camera_row):
+            self.presence_row.bind_property('active', r, 'sensitive', GObject.BindingFlags.SYNC_CREATE)
+            presence.add(r)
+        prefs.add(presence)
+
+        osd_group = Adw.PreferencesGroup()
+        self.osd_row = Adw.SwitchRow(title=_('Show changes on screen'),
+                                     subtitle=_('When the screen or keyboard backlight changes by itself, an '
+                                                'indicator appears like with the brightness keys'),
+                                     active=cfg.get('osd', True))
+        self.osd_row.connect('notify::active', lambda r, _p: self._updating or self._save_kbd(
+            _('Indicator turned on') if r.get_active() else _('Indicator turned off'), 'osd'))
+        decorate((self.osd_row, 'preferences-desktop-display-symbolic', 'teal'))
+        osd_group.add(self.osd_row)
+        prefs.add(osd_group)
+        return prefs
+
+    def _light_rows(self):
+        return [r for r in (getattr(self, 'light_row', None),) if r]
+
+    def _kbd_values(self):
+        """Values of the keyboard.json fields from the controls (computed lazily)."""
+        return {
+            'idle_timeout_s': lambda: TIMEOUTS[self.timeout_row.get_selected()][0],
+            'off_in_daytime': self.daytime_row.get_active,
+            'dark_turn_on': self.dark_row.get_active,
+            'dark_threshold': lambda: int(self.threshold_row.get_value()),
+            'very_dark_threshold': lambda: int(min(self.very_dark_row.get_value(), self.threshold_row.get_value())),
+            'screen_sensitivity': lambda: self.sensitivity_row.get_selected() + 1,
+            'osd': self.osd_row.get_active,
+            'sun_full': self.sun_full_row.get_active,
+            'sun_threshold': lambda: int(self.sun_row.get_value()),
+            'screen_method': lambda: 'stages' if self.method_row.get_selected() == 0 else 'relative',
+            'screen_stages': lambda: [int(r.get_value()) for r in self.stage_rows],
+            'presence': self.presence_row.get_active,
+            'battery_only': self.battery_only_row.get_active,
+            'presence_s': lambda: PRESENCE_DELAYS[self.presence_delay_row.get_selected()][0],
+            'presence_camera': lambda: 'normal' if self.presence_camera_row.get_selected() == 1 else 'auto',
+            'screen_auto': self.screen_row.get_active,
+            'measure_interval_s': lambda: LIGHT_INTERVALS[self.interval_row.get_selected()][0],
+        }
+
+    def _save_kbd(self, done_text, *keys):
+        """Writes only the changed keyboard/ambient light settings: the helper merges them into the
+        existing file, so changes made meanwhile by the extension (Quick Settings) aren't lost."""
+        values = self._kbd_values()
+        self._write_kbd({key: values[key]() for key in keys}, done_text)
+
+    def _write_kbd(self, changes, done_text):
+        data = json.dumps(changes)
+        self._begin()
+        self._kbd_saving += 1
+
+        def worker():
+            result = subprocess.run(['pkexec', HELPER, 'keyboard-set'], input=data, capture_output=True, text=True)
+            error = None if result.returncode == 0 else (helper_error(result.stderr) or _('Could not save'))
+
+            def done():
+                self._kbd_saving -= 1
+                self._end(error, done_text)
+                self._reload_kbd_later()   # on failure the controls revert to the file's values
+                return False
+            GLib.idle_add(done)
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _save_kbd_later(self, *keys):
+        # save when the threshold stops changing, not on every step
+        self._kbd_later_keys.update(keys)
+        if getattr(self, '_kbd_save_timer', 0):
+            GLib.source_remove(self._kbd_save_timer)
+
+        def fire():
+            self._kbd_save_timer = 0
+            keys, self._kbd_later_keys = self._kbd_later_keys, set()
+            self._save_kbd(_('Saved'), *keys)
+            return False
+        self._kbd_save_timer = GLib.timeout_add(800, fire)
+
+    def _reload_kbd_later(self):
+        # the file is written by rename (several events): coalesce and read once
+        if self._kbd_reload_timer:
+            GLib.source_remove(self._kbd_reload_timer)
+        self._kbd_reload_timer = GLib.timeout_add(300, self._reload_kbd)
+
+    def _reload_kbd(self):
+        self._kbd_reload_timer = 0
+        # don't touch the controls while a change is pending or being written;
+        # the file is re-read when the write finishes
+        if self._kbd_saving or getattr(self, '_kbd_save_timer', 0):
+            return False
+        cfg = self._kbd_cfg = kbd_config()
+        self._updating = True
+        try:
+            self.timeout_row.set_selected(next((i for i, (s, _) in enumerate(TIMEOUTS)
+                                                if s == cfg.get('idle_timeout_s')), self.timeout_row.get_selected()))
+            self.daytime_row.set_active(cfg.get('off_in_daytime', True))
+            self.battery_only_row.set_active(cfg.get('battery_only', True))
+            if hasattr(self, 'dark_row'):
+                self.dark_row.set_active(cfg.get('dark_turn_on', False))
+                self.threshold_row.set_value(cfg.get('dark_threshold', 20))
+                self.very_dark_row.set_value(cfg.get('very_dark_threshold', 8))
+                self.sensitivity_row.set_selected(cfg.get('screen_sensitivity', 2) - 1)
+                self.osd_row.set_active(cfg.get('osd', True))
+                self.sun_full_row.set_active(cfg.get('sun_full', True))
+                self.sun_row.set_value(cfg.get('sun_threshold', 1000))
+                self.method_row.set_selected(0 if cfg.get('screen_method', 'stages') == 'stages' else 1)
+                for row, value in zip(self.stage_rows, cfg.get('screen_stages') or SCREEN_PERCENTS):
+                    row.set_value(value)
+                self.presence_row.set_active(cfg.get('presence', False))
+                self.presence_delay_row.set_selected(next((i for i, (sec, _) in enumerate(PRESENCE_DELAYS)
+                                                           if sec == cfg.get('presence_s', 60)), 1))
+                self.presence_camera_row.set_selected(1 if cfg.get('presence_camera') == 'normal' else 0)
+                self.screen_row.set_active(cfg.get('screen_auto', False))
+                self.interval_row.set_selected(next((i for i, (sec, _) in enumerate(LIGHT_INTERVALS)
+                                                     if sec == cfg.get('measure_interval_s')),
+                                                    self.interval_row.get_selected()))
+                if getattr(self, '_last_light', None) is not None:
+                    self._mark_stage(self._last_light)   # thresholds may have changed
+                else:
+                    for i, row in enumerate(self.stage_rows):
+                        row.set_subtitle(self._stage_hint(i))
+        finally:
+            self._updating = False
+        self._sync_kbd_texts(force=True)
+        return False
+
+    def _sync_kbd_texts(self, force=False):
+        """Keyboard descriptions based on power-saving settings (when Fn+F6 gets corrected, etc.)."""
+        if not hasattr(self, 'battery_only_row'):
+            return
+        battery_only = self.battery_only_row.get_active()
+        ambient = self._kbd_cfg.get('dark_turn_on', False)
+        mains = _('what you choose is kept when plugged in') if battery_only else _('also when plugged in')
+        self.kbd_light_group.set_description(
+            _('You can also change it with Fn+F6; automatic on/off is on: it is corrected to the ambient light '
+              'after a few seconds ({when}).').format(when=mains) if ambient else
+            _('You can also change it with Fn+F6.'))
+        self.ambient_kbd_group.set_description(
+            _('The goal is saving power: even if you change it with Fn+F6, it is corrected to the ambient light '
+              'after a few seconds (on battery only; can be changed on the Power Saving page).') if battery_only else
+            _('The goal is saving power: even if you change it with Fn+F6, it is corrected to the ambient light '
+              'after a few seconds.'))
+        self.timeout_row.set_subtitle(
+            _("The backlight turns off if the keyboard and touchpad aren't touched for this long (also when "
+              'plugged in) and turns back on when touched'))
+        # sunrise/sunset is computed once a day (or when the location changes)
+        key = (time.strftime('%Y-%m-%d'), str(self._kbd_cfg.get('location')))
+        if force or self._sun[0] != key:
+            self._sun = (key, sun_times(self._kbd_cfg.get('location') or gnome_location()))
+        times = self._sun[1]
+        self.daytime_row.set_subtitle(
+            (_('Between sunrise and sunset the backlight starts off at boot, at login and when waking from sleep '
+               '(based on location; left alone when plugged in).') if battery_only else
+             _('Between sunrise and sunset the backlight starts off at boot, at login and when waking from sleep '
+               '(based on location).')) + ' ' +
+            (_('It stays on if the room is dark; even if you turn it on with Fn+F6, it turns off again after a few '
+               'seconds if the room is bright') if ambient else _('It can be turned on with Fn+F6')) + '\n' +
+            (_('Daytime here today: {sunrise}–{sunset}').format(sunrise=times[0], sunset=times[1]) if times else
+             _('Location unknown: turn on Settings → Privacy → Location Services')))
+
+    def _measure_light(self, calibrate=False):
+        """Measure with the camera (as the user, who has camera access)."""
+        for row in self._light_rows():
+            row.set_subtitle(_('Measuring…'))
+
+        def worker():
+            r = subprocess.run([LIGHT_TOOL], capture_output=True, text=True)
+            value = None
+            if r.returncode == 0:
+                try:
+                    value = float(r.stdout)
+                except ValueError:
+                    pass
+
+            def done():
+                for row in self._light_rows():
+                    if value is None:
+                        row.set_subtitle(helper_error(r.stderr) or _('Could not measure'))
+                    else:
+                        row.set_subtitle(self._light_text(value, time.strftime('%H:%M')))
+                if value is None:
+                    return False
+                self._manual_light = (value, time.time())
+                self._mark_stage(value)
+                if calibrate == 'sun':
+                    if value <= 300:
+                        self.toast(_('Measurement {value}: too low for sunlight (normal room ~50-255)').format(
+                            value=f'{value:.0f}'))
+                        return False
+                    self.sun_row.set_value(max(256, value * 0.7))
+                    self.toast(_('Sunlight threshold {value}: in light this bright the screen is at full '
+                                 'brightness').format(value=int(self.sun_row.get_value())))
+                elif calibrate == 'very-dark':
+                    self.very_dark_row.set_value(min(max(value * 1.5, value + 2), self.threshold_row.get_value()))
+                    self.toast(_('Very dark threshold {value}: this dark, the keyboard backlight is bright').format(
+                        value=int(self.very_dark_row.get_value())))
+                elif calibrate:
+                    self.threshold_row.set_value(max(value * 1.5, value + 3))
+                    self.toast(_('Threshold {value}: a room this dark or darker counts as dark').format(
+                        value=int(self.threshold_row.get_value())))
+                return False
+            GLib.idle_add(done)
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _on_timeout(self, row, _p):
+        if self._updating:
+            return
+        seconds, label = TIMEOUTS[row.get_selected()]
+        self._save_kbd(_('Turning off when idle disabled') if not seconds else
+                       _('The keyboard backlight will turn off after {time}').format(time=label),
+                       'idle_timeout_s')
+
+    def _on_daytime(self, row, _p):
+        if not self._updating:
+            self._save_kbd(_('Starting off during daytime turned on') if row.get_active() else
+                           _('Starting off during daytime turned off'), 'off_in_daytime')
+
+    def _sync_location(self):
+        """Tell the service if the location changed (travel); once at startup."""
+        where = gnome_location()
+        saved = kbd_config().get('location')
+        if (where and KBD_CONFIG.exists()
+                and (not saved or tuple(round(x, 4) for x in saved) != where)):
+            self._write_kbd({'location': list(where)}, _('Location updated'))
+
+    def _run_root_async(self, argv, done_text):
+        self._run_steps_async([argv], done_text)
+
+    def _begin(self):
+        self._pending += 1
+        self._generation += 1
+
+    def _end(self, error, done_text):
+        self._pending -= 1
+        self._generation += 1
+        self.toast(error or done_text)
+        self.refresh(full=True)
+        return GLib.SOURCE_REMOVE
+
+    def _on_fan_mode(self, name):
+        if not self._updating and name:
+            self._run_root_async([HELPER, 'fan', name],
+                                 _('Fan Boost turned on') if name == 'max' else _('Fan in automatic mode'))
+
+    def _perf_write(self, mode, level):
+        name, label, watts = PERF_LEVELS[mode][level]
+        self._run_root_async([HELPER, 'performance', f'{mode}-{name}'],
+                             f'{dict(PERF_MODES)[mode]} · {label} ({watts.split(",")[0]})')
+
+    def _on_perf_mode(self, mode):
+        if not self._updating and mode:
+            self._perf_write(mode, self.perf[1] if self.perf else 1)
+
+    def _on_perf_level(self, level):
+        if not self._updating and level is not None:
+            self._perf_write(self.perf[0] if self.perf else 'balanced', int(level))
+
+    def _on_boost(self, row, _p):
+        if not self._updating:
+            on = row.get_active()
+            self._run_root_async([HELPER, 'fan', 'max' if on else 'auto'],
+                                 _('Fan Boost turned on') if on else _('Fan in automatic mode'))
+
+    def _on_touchpad_toggle(self, row, _p):
+        if not self._updating:
+            on = row.get_active()
+            self._run_root_async([HELPER, 'touchpad-toggle', 'on' if on else 'off'],
+                                 _('Touchpad shortcut turned on') if on else _('Touchpad shortcut turned off'))
+
+    def _run_steps_async(self, steps, done_text):
+        """Runs commands in order in the background, stopping at the first error."""
+        self._begin()
+
+        def worker():
+            error = None
+            for argv in steps:
+                error = run_root(*argv)
+                if error:
+                    break
+            GLib.idle_add(self._end, error, done_text)
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _on_ac_recover(self, row, _p):
+        if self._updating:
+            return
+        on = row.get_active()
+        steps = [[UEFI_HELPER, 'ac-recover', 'on' if on else 'off']]
+        if on and self.usb_row.get_active():
+            steps.insert(0, [HELPER, 'usb-power', 'off'])
+        self._run_steps_async(steps, _('Power on when plugged in turned on; takes effect after a restart') if on else
+                              _('Power on when plugged in turned off; takes effect after a restart'))
+
+    def _on_usb_power(self, row, _p):
+        if self._updating:
+            return
+        on = row.get_active()
+        steps = [[HELPER, 'usb-power', 'on' if on else 'off']]
+        if on and self.ac_row.get_active():
+            steps.insert(0, [UEFI_HELPER, 'ac-recover', 'off'])
+        self._run_steps_async(steps, _('USB power while off turned on') if on else _('USB power while off turned off'))
+
+    def _on_super_lock(self, row, _p):
+        if not self._updating:
+            on = row.get_active()
+            self._run_root_async([HELPER, 'super-key-lock', 'on' if on else 'off'],
+                                 _('Windows key locked') if on else _('Windows key unlocked'))
+
+    def _on_fn_lock(self, row, _p):
+        if not self._updating:
+            on = row.get_active()
+            self._run_root_async([HELPER, 'fn-lock', 'on' if on else 'off'],
+                                 _('Fn lock turned on') if on else _('Fn lock turned off'))
+
+    def _on_charge_choice(self, row, _p, command, options):
+        if not self._updating:
+            name, label = options[row.get_selected()][:2]
+            self._run_root_async([HELPER, command, name], f'{row.get_title()}: {label}')
+
+    def _on_profile(self, name):
+        # when the power mode changes, tuned writes to the driver and controller; this can
+        # take a few seconds, so don't block the UI
+        if not self._updating and name and self.up.profiles:
+            self._begin()
+            self.up.profiles.call(
+                'org.freedesktop.DBus.Properties.Set',
+                GLib.Variant('(ssv)', ('org.freedesktop.UPower.PowerProfiles', 'ActiveProfile',
+                                       GLib.Variant('s', name))),
+                0, -1, None, lambda proxy, res: self._dbus_done(
+                    proxy, res, _('Power mode: {mode}').format(mode={
+                        'power-saver': _('Power Saver'), 'balanced': _('Balanced'),
+                        'performance': _('Performance')}.get(name, name))))
+
+    def _on_card_mode(self, row, _p):
+        mode, label, sub = CARD_MODES[row.get_selected()]
+        row.set_subtitle(sub)
+        if self._updating:
+            return
+        steps = {'off': [('card-reader-off', 'on')],
+                 'sleep': [('card-reader-off', 'off'), ('card-reader-sleep', 'on')],
+                 'on': [('card-reader-off', 'off'), ('card-reader-sleep', 'off')]}[mode]
+        self._run_steps_async([[POWER_HELPER, *step] for step in steps],
+                              _('SD card reader: {mode}').format(mode=label.lower()))
+
+    def _on_power_setting(self, row, _p, feature):
+        if not self._updating:
+            self._run_root_async([POWER_HELPER, feature, 'on' if row.get_active() else 'off'], _('Setting applied'))
+
+
+# Other names for --page
+PAGE_ALIASES = {'general': 'overview', 'auto': 'automation', 'ambient-light': 'ambient',
+                'power-saving': 'power', 'info': 'about'}
+
+
+class App(Adw.Application):
+    def __init__(self):
+        # the command line is forwarded to the first instance: "--page battery" switches pages while running
+        super().__init__(application_id=APP_ID, flags=Gio.ApplicationFlags.HANDLES_COMMAND_LINE)
+        self._page = None
+
+    def do_startup(self):
+        Adw.Application.do_startup(self)
+        theme = Gtk.IconTheme.get_for_display(Gdk.Display.get_default())
+        theme.add_search_path(str(HERE / 'icons'))  # when running from the repo
+        css = Gtk.CssProvider()
+        css.load_from_string(CSS)
+        Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(), css,
+                                                  Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+
+    def do_command_line(self, command_line):
+        args = command_line.get_arguments()[1:]
+        self._page = START_PAGE
+        if '--page' in args:
+            i = args.index('--page')
+            self._page = args[i + 1] if i + 1 < len(args) else None
+        self._page = PAGE_ALIASES.get(self._page, self._page)
+        self.activate()
+        return 0
+
+    def do_activate(self):
+        window = self.get_active_window() or Window(self)
+        page = self._page or START_PAGE
+        if page:
+            window.show_page(page)
+        window.present()
+
+
+if __name__ == '__main__':
+    # huma-control --page overview|performance|automation|fan|keyboard|ambient|battery|power|history|about
+    START_PAGE = None   # tests set this directly; the command line is handled in do_command_line
+    sys.exit(App().run(sys.argv))

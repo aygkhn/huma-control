@@ -1,0 +1,30 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# SPDX-FileCopyrightText: 2026 Gokhan AY <aygkhn@gmail.com>
+[Unit]
+Description=Huma Control Center: turn off the keyboard light when idle
+# independent of the session and started at boot, so it also works on the login screen
+After=systemd-udev-settle.service systemd-modules-load.service
+Before=display-manager.service
+# without a keyboard light the service exits cleanly; udev starts it once the light is added
+# (driver loaded / reloaded): 71-huma-control-keyboard.rules. Do not restart forever after
+# crashes (10 attempts within 5 min)
+StartLimitIntervalSec=300
+StartLimitBurst=10
+
+[Service]
+ExecStart=/usr/local/libexec/huma-control-keyboard
+Restart=on-failure
+RestartSec=5
+# do not write __pycache__ under the root-owned libexec
+Environment=PYTHONDONTWRITEBYTECODE=1
+# only reads /dev/input and writes the keyboard light; /run/user is read-only so that
+# /run/user/*/huma-control-pause (movie / full screen) can be read, home dirs stay closed
+ProtectHome=read-only
+InaccessiblePaths=-/home -/root
+ProtectSystem=strict
+ReadWritePaths=/sys/class/leds /sys/devices /run
+PrivateTmp=yes
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=multi-user.target

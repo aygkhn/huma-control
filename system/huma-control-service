@@ -1,0 +1,891 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: GPL-2.0-or-later
+# SPDX-FileCopyrightText: 2026 Gokhan AY <aygkhn@gmail.com>
+"""Huma Control Center system service: automatic profiles, history logging and alerts.
+
+Runs as root from boot, independent of any session (also on the login screen).
+
+Automatic profiles (/etc/huma-control/automation.json, written by Huma Control Center through
+  huma-control-helper; off by default):
+  priority: running app rule > night hours > on AC / on battery. When the matching rule changes
+  it writes the driver's performance_profile; when no rule matches it returns to the profile in
+  use before the rules. If the user changes it by hand, it is left alone until conditions change.
+
+History (/var/lib/huma-control/history.csv): once a minute AC, battery, power, temperature,
+  fan, profile and battery capacity; entries older than 90 days are removed. Written to disk in
+  batches every 10 minutes (and on stop).
+
+Power saving: every read of a qc71 sysfs file is a WMI access to the embedded controller (EC)
+  (~61 ms, ~39 EC interrupts; performance_profile takes 3 calls). So the loop runs every 15 s
+  (5 s above 85 °C), AC and profile changes are learned from kernel uevents without waiting,
+  the profile is read only when it changes, fan speed every 5 minutes on battery (every minute
+  when hot), fan fault every 10 minutes (every minute above 80 °C).
+
+Battery usage (/var/lib/huma-control/battery-usage.json): per-app share, like on Android,
+  an estimate. Only on battery, once a minute: the estimated screen share and the idle baseline are
+  subtracted from the measured power, the rest is split among apps in proportion to CPU (cgroup
+  cpu.stat) and GPU (DRM fdinfo) usage. Every app launched from GNOME has its own cgroup;
+  programs running in terminal tabs are counted separately. Kept since the last charge and
+  hourly (7 days).
+
+Alerts (/run/huma-control/alerts.json): overheating, fan fault, fan not spinning while
+  hot, battery health below 80%. The Huma Control Center extension shows them as desktop
+  notifications.
+
+  huma-control-service              run the service
+  huma-control-service --validate   validate the automatic profile settings on stdin, print
+                                    clean JSON
+"""
+import errno
+import json
+import os
+import re
+import select
+import signal
+import socket
+import sys
+import time
+from datetime import datetime, timedelta
+from pathlib import Path
+
+QC71 = Path('/sys/devices/platform/qc71_laptop')
+BAT = Path('/sys/class/power_supply/BAT0')
+CONFIG = Path('/etc/huma-control/automation.json')
+HISTORY = Path('/var/lib/huma-control/history.csv')
+ALERTS = Path('/run/huma-control/alerts.json')
+STATE = Path('/run/huma-control/automation-state.json')
+PROFILES = ['balanced-low', 'balanced-medium', 'balanced-high', 'quiet-20db', 'quiet-30db', 'quiet-40db']
+HISTORY_DAYS = 90
+TICK = 15           # s: normal loop interval
+TICK_HOT = 5        # s: when hot (the 95 °C alert needs 30 s of sustained heat, sample often)
+HOT_C = 85          # TICK_HOT from this temperature on
+HISTORY_EVERY = 60  # s
+FLUSH_EVERY = 600   # s: history and battery usage are buffered in memory, written to disk at this interval
+FAN_EVERY_BATTERY = 300  # s: fan speed read interval on battery (every minute on AC)
+FAN_WARM_C = 60     # from this temperature on, fan speed is read on every record
+FAULT_EVERY = 600   # s: fan fault read interval
+FAULT_HOT_C = 80    # from this temperature on, fan fault is read on every record
+FIELDS = 'time,ac,battery,watts,cpu_c,fan_rpm,profile,full_wh,design_wh'
+
+DEFAULT = {
+    'enabled': False,
+    'on_ac': '',
+    'on_battery': '',
+    'night': {'enabled': False, 'start': '23:00', 'end': '07:00', 'profile': 'quiet-20db'},
+    'apps': [],
+}
+
+
+def log(text):
+    print(text, flush=True)
+
+
+def read(path, default=None):
+    try:
+        return Path(path).read_text().strip()
+    except OSError:
+        return default
+
+
+def hwmon(name):
+    for h in Path('/sys/class/hwmon').iterdir():
+        if read(h / 'name') == name:
+            return h
+    return None
+
+
+_HWMON = {}   # (names, file) → path; avoid scanning hwmon names on every read
+
+
+def hwmon_value(names, attr):
+    """Value from the first matching hwmon; the path is cached and looked up again if it cannot
+    be read (driver reloaded, number changed)."""
+    key = (names, attr)
+    path = _HWMON.get(key)
+    value = read(path) if path else None
+    if value is None:
+        path = None
+        for name in names:
+            h = hwmon(name)
+            if h:
+                path = h / attr
+                break
+        _HWMON[key] = path
+        value = read(path) if path else None
+    return value
+
+
+# ------------------------------------------------------------------ settings
+
+# a broken settings file must never bring the service down (systemd would keep restarting it)
+CONFIG_ERRORS = (OSError, ValueError, TypeError, AttributeError)
+
+
+def validate(data):
+    """Validate the settings, fill in missing fields with defaults; ValueError if invalid."""
+    if not isinstance(data, dict):
+        raise ValueError('settings must be an object')
+    out = json.loads(json.dumps(DEFAULT))
+    out['enabled'] = bool(data.get('enabled', False))
+    for key in ('on_ac', 'on_battery'):
+        value = data.get(key, '') or ''
+        if value and (not isinstance(value, str) or value not in PROFILES):
+            raise ValueError(f'{key}: unknown profile {value}')
+        out[key] = value
+    night = data.get('night') or {}
+    if not isinstance(night, dict):
+        raise ValueError('night must be an object')
+    for key in ('start', 'end'):
+        value = night.get(key, out['night'][key])
+        if not re.fullmatch(r'([01]\d|2[0-3]):[0-5]\d', str(value)):
+            raise ValueError(f'night.{key}: must be HH:MM')
+        out['night'][key] = value
+    out['night']['enabled'] = bool(night.get('enabled', False))
+    profile = night.get('profile', out['night']['profile'])
+    if not isinstance(profile, str) or profile not in PROFILES:
+        raise ValueError('night.profile: unknown profile')
+    out['night']['profile'] = profile
+    rules = data.get('apps') or []
+    if not isinstance(rules, list) or len(rules) > 20:
+        raise ValueError('apps: at most 20 rules')
+    for rule in rules:
+        if not isinstance(rule, dict):
+            raise ValueError('app rule must be an object')
+        name, match, profile = str(rule.get('name', ''))[:60], str(rule.get('match', ''))[:120], rule.get('profile')
+        # app_id: ID of an app launched from GNOME (.desktop name, e.g. org.mozilla.firefox)
+        app_id = str(rule.get('app_id', '') or '')[:120].strip()
+        if app_id and not re.fullmatch(r'[\w.\-]+', app_id):
+            raise ValueError(f'invalid app ID: {app_id}')
+        if not (match.strip() or app_id) or not isinstance(profile, str) or profile not in PROFILES:
+            raise ValueError('incomplete app rule')
+        battery_only = rule.get('battery_only', False)
+        if not isinstance(battery_only, bool):
+            raise ValueError('battery_only must be true/false')
+        item = {'name': name or app_id or match, 'match': match.strip(), 'profile': profile, 'battery_only': battery_only}
+        if app_id:
+            item['app_id'] = app_id
+        out['apps'].append(item)
+    return out
+
+
+def load_config():
+    try:
+        return validate(json.loads(CONFIG.read_text()))
+    except CONFIG_ERRORS as e:
+        if CONFIG.exists():
+            log(f'could not read settings: {e}')
+        return json.loads(json.dumps(DEFAULT))
+
+
+# ------------------------------------------------------------------ automatic profiles
+
+def running_commands():
+    """Command lines of running processes (lowercase)."""
+    out = []
+    for pid in os.listdir('/proc'):
+        if not pid.isdigit():
+            continue
+        try:
+            raw = Path(f'/proc/{pid}/cmdline').read_bytes()
+        except OSError:
+            continue
+        if raw:
+            out.append(raw.replace(b'\0', b' ').decode(errors='replace').lower())
+    return out
+
+
+def running_apps():
+    """IDs of apps launched from GNOME (lowercase): each has its own cgroup
+    (app-gnome-org.mozilla.firefox-1234.scope); more reliable than the command line."""
+    out = set()
+    try:
+        for scope in CGROUP.glob('user.slice/user-*.slice/user@*.service/app.slice/app-*'):
+            m = re.match(r'app-(?:gnome|flatpak)-(.+?)-\d+\.scope$', unescape(scope.name))
+            if m:
+                out.add(m.group(1).lower())
+    except OSError:
+        pass
+    return out
+
+
+def in_window(start, end, now):
+    s = int(start[:2]) * 60 + int(start[3:])
+    e = int(end[:2]) * 60 + int(end[3:])
+    m = now.hour * 60 + now.minute
+    return s <= m < e if s <= e else (m >= s or m < e)
+
+
+_MAINS = None   # the AC adapter's 'online' file (kept once found)
+
+
+def on_mains():
+    """On AC? Reading 'online' is ACPI _PSR (~4 EC interrupts); called at most once per round."""
+    global _MAINS
+    if _MAINS:
+        value = read(_MAINS)
+        if value is not None:
+            return value == '1'
+    for ps in Path('/sys/class/power_supply').iterdir():
+        if read(ps / 'type') == 'Mains':
+            _MAINS = ps / 'online'
+            return read(_MAINS) == '1'
+    _MAINS = None
+    return True
+
+
+class Profile:
+    """performance_profile cache: a read is 3 WMI calls (~116 EC interrupts). Read once when
+    needed at start, after our own writes and when the driver announces a change (uevent
+    HUMA_CONTROL=performance). Without a uevent socket (live=False) it is read every time."""
+
+    def __init__(self):
+        self.value = None
+        self.dirty = True
+        self.live = False
+
+    def get(self):
+        if self.dirty or not self.live:
+            self.value = read(QC71 / 'performance_profile')
+            self.dirty = self.value is None   # without the driver reading is cheap; retry once it loads
+        return self.value
+
+
+NETLINK_KOBJECT_UEVENT = 15   # linux/netlink.h (missing from Python's socket module)
+
+
+class Uevents:
+    """Kernel uevents (NETLINK_KOBJECT_UEVENT): AC plug/unplug (power_supply) and the driver's
+    profile announcement (/devices/platform/qc71_laptop, HUMA_CONTROL=performance) arrive
+    without waiting for the loop round. OSError if the socket cannot be opened; the loop then
+    falls back to reading every round."""
+
+    def __init__(self):
+        self.sock = socket.socket(socket.AF_NETLINK, socket.SOCK_DGRAM | socket.SOCK_NONBLOCK | socket.SOCK_CLOEXEC,
+                                  NETLINK_KOBJECT_UEVENT)
+        self.sock.bind((0, 1))   # 1: the kernel's broadcast group (without waiting for udev)
+        self.poll = select.poll()
+        self.poll.register(self.sock, select.POLLIN)
+
+    def wait(self, timeout):
+        """Wait at most timeout s. Returns {'mains': True/False/None (changed, value unknown),
+        'profile': True, 'lost': True (events lost, re-read everything)}; empty on timeout."""
+        out = {}
+        if not self.poll.poll(max(0, int(timeout * 1000))):
+            return out
+        while True:
+            try:
+                data, (pid, _) = self.sock.recvfrom(16384)
+            except BlockingIOError:
+                break
+            except OSError as e:
+                if e.errno != errno.ENOBUFS:
+                    raise
+                out['lost'] = True
+                continue
+            if pid != 0:   # only from the kernel
+                continue
+            env = dict(p.split(b'=', 1) for p in data.split(b'\0')[1:] if b'=' in p)
+            if env.get(b'SUBSYSTEM') == b'power_supply' and env.get(b'POWER_SUPPLY_TYPE') == b'Mains':
+                online = env.get(b'POWER_SUPPLY_ONLINE')
+                out['mains'] = online == b'1' if online in (b'0', b'1') else None
+            elif env.get(b'DEVPATH') == b'/devices/platform/qc71_laptop':
+                # driver loaded or profile changed (fan_boost is not a profile)
+                if env.get(b'HUMA_CONTROL') == b'performance' or env.get(b'ACTION') in (b'add', b'bind'):
+                    out['profile'] = True
+        return out
+
+
+class Auto:
+    def __init__(self, mains, profile):
+        self.applied = None       # last applied (reason, profile, reason code, data)
+        self.before = None        # profile before the rules
+        self.mains = mains
+        self.profile = profile    # performance_profile cache
+        self.reapply_at = 0
+
+    def busy(self, config):
+        """Is a tick needed this round? When off, only to return to the previous profile or for a
+        pending re-apply."""
+        return config['enabled'] or self.applied is not None or bool(self.reapply_at)
+
+    def desired(self, config, mains):
+        """Matching rule as (reason text, profile, reason code, data) or None. The English
+        reason text is for the log and other tools; the app and extension translate from the
+        code and data (see STATE)."""
+        if not config['enabled']:
+            return None
+        rules = [r for r in config['apps'] if not (r.get('battery_only') and mains)]
+        if rules:
+            commands = running_commands() if any(r['match'] for r in rules) else []
+            apps = running_apps() if any(r.get('app_id') for r in rules) else set()
+            for rule in rules:
+                needle = rule['match'].lower()
+                if (rule.get('app_id', '').lower() in apps or
+                        (needle and any(needle in c for c in commands))):
+                    return (f"app: {rule['name']}", rule['profile'], 'app', {'name': rule['name']})
+        night = config['night']
+        if night['enabled'] and in_window(night['start'], night['end'], datetime.now()):
+            return ('night hours', night['profile'], 'night', {})
+        profile = config['on_ac'] if mains else config['on_battery']
+        if profile:
+            return ('on AC' if mains else 'on battery', profile, 'ac' if mains else 'battery', {})
+        return None
+
+    def write(self, profile):
+        try:
+            (QC71 / 'performance_profile').write_text(profile)
+            return True
+        except OSError as e:
+            log(f'could not write profile ({profile}): {e}')
+            return False
+        finally:
+            self.profile.dirty = True   # the driver's current value is re-read when needed
+
+    def tick(self, config, mains):
+        now = time.monotonic()
+        if mains != self.mains:
+            # tuned also writes the power mode when AC changes; re-apply after it
+            self.mains = mains
+            self.reapply_at = now + 4
+        want = self.desired(config, mains)
+        force = self.reapply_at and now >= self.reapply_at
+        if force:
+            self.reapply_at = 0
+        if want == self.applied and not force:
+            return
+        if want is None:
+            if self.applied is not None and self.before:
+                log(f'no rule applies: returning to profile {self.before}')
+                self.write(self.before)
+            self.applied, self.before = None, None
+        else:
+            if self.applied is None:
+                self.before = self.profile.get()
+                if self.before not in PROFILES:
+                    self.before = None
+            if want != self.applied:
+                log(f'{want[0]} → {want[1]}')
+            if self.write(want[1]):
+                self.applied = want
+        try:
+            STATE.parent.mkdir(parents=True, exist_ok=True)
+            STATE.write_text(json.dumps({'reason': self.applied[0] if self.applied else None,
+                                         'reason_code': self.applied[2] if self.applied else None,
+                                         'data': self.applied[3] if self.applied else None,
+                                         'profile': self.applied[1] if self.applied else None},
+                                        ensure_ascii=False))
+        except OSError:
+            pass
+
+
+# ------------------------------------------------------------------ history
+
+def battery_watts():
+    """Battery power (W; negative while discharging). power_now if current_now/voltage_now are missing."""
+    sign = -1 if read(BAT / 'status') == 'Discharging' else 1
+    try:
+        cur, volt = read(BAT / 'current_now'), read(BAT / 'voltage_now')
+        if cur and volt:
+            return sign * int(cur) * int(volt) / 1e12
+    except ValueError:
+        pass
+    try:
+        power = read(BAT / 'power_now')
+        return sign * int(power) / 1e6 if power else None
+    except ValueError:
+        return None
+
+
+def battery_wh():
+    volts = int(read(BAT / 'voltage_min_design', '0') or 0) / 1e6
+    full, design = read(BAT / 'charge_full'), read(BAT / 'charge_full_design')
+    if full and design and volts:
+        return int(full) / 1e6 * volts, int(design) / 1e6 * volts
+    full, design = read(BAT / 'energy_full'), read(BAT / 'energy_full_design')
+    if full and design:
+        return int(full) / 1e6, int(design) / 1e6
+    return None, None
+
+
+def cpu_temp():
+    value = hwmon_value(('coretemp', 'k10temp'), 'temp1_input')
+    return int(value) / 1000 if value else None
+
+
+def fan_rpm():
+    """Fan speed; every read is an EC WMI access (~39 interrupts)."""
+    value = hwmon_value(('qc71_laptop.hwmon.fan',), 'fan1_input')
+    return int(value) if value else None
+
+
+def fmt(v, spec='.1f'):
+    return '' if v is None else format(v, spec)
+
+
+_PENDING = []   # history lines waiting to be written to disk
+
+
+def record(sample):
+    """Buffer the line in memory; flush_history() writes it (so the disk does not wake every minute)."""
+    _PENDING.append(','.join(sample))
+
+
+def flush_history():
+    if not _PENDING:
+        return
+    try:
+        HISTORY.parent.mkdir(parents=True, exist_ok=True)
+        new = not HISTORY.exists()
+        with HISTORY.open('a') as f:
+            if new:
+                f.write(FIELDS + '\n')
+            f.write('\n'.join(_PENDING) + '\n')
+        _PENDING.clear()
+    except OSError as e:
+        log(f'could not write history: {e}')
+        del _PENDING[:-1440]   # if it cannot be written, keep at most one day in memory
+
+
+def prune():
+    """Remove lines older than 90 days."""
+    flush_history()
+    try:
+        lines = HISTORY.read_text().splitlines()
+    except OSError:
+        return
+    limit = (datetime.now() - timedelta(days=HISTORY_DAYS)).strftime('%Y-%m-%dT%H:%M')
+    kept = [lines[0]] + [l for l in lines[1:] if l[:16] >= limit]
+    if len(kept) < len(lines):
+        tmp = HISTORY.with_suffix('.tmp')
+        tmp.write_text('\n'.join(kept) + '\n')
+        tmp.replace(HISTORY)
+
+
+# ------------------------------------------------------------------ alerts
+
+class Alerts:
+    """Each alert has an English 'title'/'text' (for the log and other tools) plus a stable
+    'code' and the 'data' values used in the text, so the app and extension can translate."""
+
+    def __init__(self):
+        self.items = []
+        self.next_id = int(time.time())
+        self.last = {}          # kind -> time of the last alert
+        self.hot_since = None
+        self.stuck_since = None
+
+    def raise_(self, kind, code, title, text, data, cooldown):
+        now = time.monotonic()
+        if now - self.last.get(kind, -1e9) < cooldown:
+            return
+        self.last[kind] = now
+        self.next_id += 1
+        self.items.append({'id': self.next_id, 'kind': kind, 'code': code,
+                           'time': datetime.now().isoformat(timespec='seconds'),
+                           'title': title, 'text': text.format(**data), 'data': data})
+        self.items = self.items[-20:]
+        log(f'alert: {title}')
+        try:
+            ALERTS.parent.mkdir(parents=True, exist_ok=True)
+            tmp = ALERTS.with_suffix('.tmp')
+            tmp.write_text(json.dumps({'alerts': self.items}, ensure_ascii=False))
+            os.chmod(tmp, 0o644)
+            tmp.replace(ALERTS)
+        except OSError as e:
+            log(f'could not write alerts: {e}')
+
+    def check(self, temp, rpm=None, full_wh=None, design_wh=None, fault=None):
+        """rpm/fault None: not read this round (the EC is not queried every round), that check is skipped."""
+        now = time.monotonic()
+        if temp is not None and temp >= 95:
+            self.hot_since = self.hot_since or now
+            if now - self.hot_since >= 30:
+                self.raise_('overheat', 'overheat', 'CPU is overheating',
+                            'CPU at {temp} °C. Make sure the air vents are not blocked; '
+                            'Fan Boost can be turned on from the Performance page.', {'temp': round(temp)}, 600)
+        else:
+            self.hot_since = None
+        if fault:
+            self.raise_('fan_fault', 'fan-fault', 'Fan failure',
+                        'The controller reports a fan failure (the fan is not spinning or is stuck).', {}, 3600)
+        if rpm is None and temp is not None and temp >= 80:
+            pass    # fan not read this round: do not reset the timer
+        elif temp is not None and rpm == 0 and temp >= 80:
+            self.stuck_since = self.stuck_since or now
+            if now - self.stuck_since >= 60:
+                self.raise_('fan_stuck', 'fan-stuck', 'Fan is not spinning',
+                            'The fan is stopped although the CPU is at {temp} °C.', {'temp': round(temp)}, 1800)
+        else:
+            self.stuck_since = None
+        if full_wh and design_wh and full_wh / design_wh < 0.8:
+            self.raise_('battery_health', 'battery-health', 'Battery health has dropped',
+                        'When full, the battery holds {full_wh} Wh (design {design_wh} Wh, {percent}%). '
+                        '"Balanced" or "Stationary" in Battery Care protects the battery.',
+                        {'full_wh': round(full_wh, 1), 'design_wh': round(design_wh, 1),
+                         'percent': round(100 * full_wh / design_wh)}, 86400 * 7)
+
+
+# ------------------------------------------------------------------ battery usage
+
+USAGE = Path('/var/lib/huma-control/battery-usage.json')
+# Battery usage file: {"charge": {"start": "YYYY-MM-DDTHH:MM", "percent": capacity at unplug,
+# "wh": {key: Wh}}, "hourly": {"YYYY-MM-DDTHH": {key: Wh}}, "baseline": {"YYYY-MM-DD": W}};
+# keys: "app:<desktop id>", "terminal:<process>", "screen", "system", "desktop" (GNOME Shell)
+CGROUP = Path('/sys/fs/cgroup')
+PANEL = Path('/sys/class/drm')
+USAGE_DAYS = 7
+GPU_RESCAN = 600    # s: processes using the GPU are rescanned at this interval
+
+
+def unescape(name):
+    return re.sub(r'\\x([0-9a-f]{2})', lambda m: chr(int(m.group(1), 16)), name)
+
+
+def app_key(path):
+    """App key from a cgroup path; None: count process by process (terminal tab)."""
+    name = unescape(path.name)
+    parts = path.parts
+    if 'app.slice' in parts:
+        if re.match(r'(ptyxis|vte|gnome-terminal|kgx)-spawn-', name):
+            return None
+        m = (re.match(r'app-(?:gnome|flatpak)-(.+?)-\d+\.scope$', name) or re.match(r'app-(.+?)(?:@[^.]*)?\.(?:scope|service)$', name)
+             or re.match(r'dbus-:[\d.]+-(.+?)@\d+\.service$', name))
+        return f'app:{m.group(1)}' if m else f'app:{name.rsplit(".", 1)[0]}'
+    if name.startswith('org.gnome.Shell@'):
+        return 'desktop'
+    return 'system'
+
+
+def leaf_cgroups():
+    """Leaf cgroups containing processes (apps, session and system services)."""
+    for root, dirs, files in os.walk(CGROUP):
+        if not dirs or not any(d.endswith(('.slice', '.service', '.scope')) for d in dirs):
+            if 'cpu.stat' in files:
+                yield Path(root)
+
+
+def cpu_usec(cg):
+    try:
+        for line in (cg / 'cpu.stat').read_text().splitlines():
+            if line.startswith('usage_usec'):
+                return int(line.split()[1])
+    except (OSError, ValueError):
+        pass
+    return None
+
+
+def proc_cpu(cg):
+    """CPU time (microseconds) of processes in a terminal tab, keyed by process name."""
+    out = {}
+    tick = os.sysconf('SC_CLK_TCK')
+    try:
+        pids = (cg / 'cgroup.procs').read_text().split()
+    except OSError:
+        return out
+    for pid in pids:
+        try:
+            stat = Path(f'/proc/{pid}/stat').read_text()
+            comm = stat[stat.index('(') + 1:stat.rindex(')')]
+            fields = stat[stat.rindex(')') + 2:].split()
+            out[(pid, comm)] = (int(fields[11]) + int(fields[12]) + int(fields[13]) + int(fields[14])) * 1e6 / tick
+        except (OSError, ValueError, IndexError):
+            continue
+    return out
+
+
+def gpu_pids():
+    """Processes with a GPU (DRM) file open: {pid: (DRM fd numbers)}."""
+    found = {}
+    for pid in filter(str.isdigit, os.listdir('/proc')):
+        fds = []
+        try:
+            for fd in os.listdir(f'/proc/{pid}/fd'):
+                try:
+                    if os.readlink(f'/proc/{pid}/fd/{fd}').startswith('/dev/dri/'):
+                        fds.append(fd)
+                except OSError:
+                    continue
+        except OSError:
+            continue
+        if fds:
+            found[pid] = tuple(fds)
+    return found
+
+
+def gpu_nsec(pid, fds):
+    """Time (ns) the process spent on GPU engines, counted once per client. Only the fdinfo of
+    DRM fds found by the scan is read (not all); if an fd was closed and reused for another
+    file it has no drm-client-id and is not counted."""
+    total, seen = 0, set()
+    for fd in fds:
+        try:
+            text = Path(f'/proc/{pid}/fdinfo/{fd}').read_text()
+        except OSError:
+            continue
+        client = re.search(r'drm-client-id:\s*(\d+)', text)
+        if not client or client.group(1) in seen:
+            continue
+        seen.add(client.group(1))
+        total += sum(int(v) for v in re.findall(r'drm-engine-[\w-]+:\s*(\d+) ns', text))
+    return total
+
+
+def pid_key(pid):
+    try:
+        cg = Path(Path(f'/proc/{pid}/cgroup').read_text().strip().split('::', 1)[1].lstrip('/'))
+        key = app_key(CGROUP / cg)
+        if key is None:
+            stat = Path(f'/proc/{pid}/stat').read_text()
+            key = 'terminal:' + stat[stat.index('(') + 1:stat.rindex(')')]
+        return key
+    except (OSError, IndexError):
+        return 'system'
+
+
+def screen_watts():
+    """Estimated power of the laptop screen (0 if off): roughly linear with brightness."""
+    for conn in PANEL.glob('card*-eDP-*'):
+        if read(conn / 'dpms') != 'On':
+            return 0.0
+    for bl in Path('/sys/class/backlight').iterdir():
+        try:
+            return 0.4 + 3.6 * int(read(bl / 'brightness')) / int(read(bl / 'max_brightness'))
+        except (TypeError, ValueError, ZeroDivisionError):
+            continue
+    return 0.0
+
+
+class Usage:
+    def __init__(self):
+        self.prev = None          # previous sample: (time, {cgroup: usec}, {(pid, name): usec}, {pid: ns})
+        self.gpu = {}             # pid → DRM fd numbers
+        self.gpu_scan = 0
+        self.dirty = False        # there are changes not yet written to disk
+        try:
+            self.data = json.loads(USAGE.read_text())
+        except (OSError, ValueError):
+            self.data = {}
+        if not isinstance(self.data, dict):
+            self.data = {}
+        self.data.setdefault('charge', {'start': None, 'percent': None, 'wh': {}})
+        self.data.setdefault('hourly', {})
+        self.data.setdefault('baseline', {})   # day → lowest (power − screen), for the idle baseline
+        self.was_mains = None
+
+    def sample(self, now):
+        cg_usec, proc_usec, gpu = {}, {}, {}
+        for cg in leaf_cgroups():
+            key = app_key(cg)
+            if key is None:
+                proc_usec.update(proc_cpu(cg))
+            else:
+                usec = cpu_usec(cg)
+                if usec is not None:
+                    cg_usec[cg] = (key, usec)
+        if not self.gpu_scan or now - self.gpu_scan >= GPU_RESCAN:
+            self.gpu_scan, self.gpu = now, gpu_pids()
+        for pid, fds in self.gpu.items():
+            gpu[pid] = gpu_nsec(pid, fds)
+        return now, cg_usec, proc_usec, gpu
+
+    @staticmethod
+    def weights(prev, cur):
+        """CPU + GPU time (s) of each key between two samples."""
+        _, pcg, pproc, pgpu = prev
+        _, ccg, cproc, cgpu = cur
+        w = {}
+        for cg, (key, usec) in ccg.items():
+            if cg in pcg:
+                w[key] = w.get(key, 0) + max(0, usec - pcg[cg][1]) / 1e6
+        for (pid, comm), usec in cproc.items():
+            if (pid, comm) in pproc:
+                k = f'terminal:{comm}'
+                w[k] = w.get(k, 0) + max(0, usec - pproc[(pid, comm)]) / 1e6
+        for pid, ns in cgpu.items():
+            if pid in pgpu and ns > pgpu[pid]:
+                k = pid_key(pid)
+                w[k] = w.get(k, 0) + (ns - pgpu[pid]) / 1e9
+        return w
+
+    def tick(self, mains, watts):
+        now = time.monotonic()
+        capacity = int(read(BAT / 'capacity', '0') or 0)
+        if mains:
+            self.prev = None      # on AC the battery is not used: do not measure (no cost either)
+            self.was_mains = True
+            return
+        if self.was_mains or self.data['charge'].get('start') is None:
+            start = self.data['charge']
+            # charged and unplugged: new period ("since last charge")
+            if start.get('start') is None or capacity >= (start.get('percent') or 0) + 10 or capacity >= 95:
+                self.data['charge'] = {'start': datetime.now().strftime('%Y-%m-%dT%H:%M'), 'percent': capacity,
+                                       'wh': {}}
+        self.was_mains = False
+        cur = self.sample(now)
+        prev, self.prev = self.prev, cur
+        if prev is None or watts is None or not 0 < now - prev[0] < 600:
+            return
+        weights = self.weights(prev, cur)
+        hours = (now - prev[0]) / 3600
+        total = max(0.0, -watts)
+        screen = min(screen_watts(), total)
+        rest = total - screen
+        day = datetime.now().strftime('%Y-%m-%d')
+        self.data['baseline'][day] = min(self.data['baseline'].get(day, rest), rest)
+        base = min(min(self.data['baseline'].values()), rest)
+        active = rest - base
+        busy = sum(weights.values())
+        energy = {'screen': screen * hours, 'system': base * hours}
+        if busy < 0.5:
+            energy['system'] += active * hours
+        else:
+            for key, sec in weights.items():
+                energy[key] = energy.get(key, 0) + active * hours * sec / busy
+        hour = datetime.now().strftime('%Y-%m-%dT%H')
+        bucket = self.data['hourly'].setdefault(hour, {})
+        charge = self.data['charge'].setdefault('wh', {})
+        for key, wh in energy.items():
+            if wh > 0:
+                bucket[key] = round(bucket.get(key, 0) + wh, 5)
+                charge[key] = round(charge.get(key, 0) + wh, 5)
+        self.save()
+
+    def save(self):
+        """Mark as changed; flush() writes to disk."""
+        self.dirty = True
+
+    def flush(self):
+        if not self.dirty:
+            return
+        self.dirty = False
+        limit = (datetime.now() - timedelta(days=USAGE_DAYS)).strftime('%Y-%m-%dT%H')
+        self.data['hourly'] = {h: v for h, v in self.data['hourly'].items() if h >= limit}
+        self.data['baseline'] = {d: v for d, v in self.data['baseline'].items() if d >= limit[:10]}
+        try:
+            USAGE.parent.mkdir(parents=True, exist_ok=True)
+            tmp = USAGE.with_suffix('.tmp')
+            tmp.write_text(json.dumps(self.data, ensure_ascii=False))
+            os.chmod(tmp, 0o644)
+            tmp.replace(USAGE)
+        except OSError as e:
+            self.dirty = True
+            log(f'could not write battery usage: {e}')
+
+
+# ------------------------------------------------------------------ main loop
+
+def main():
+    if '--validate' in sys.argv:
+        try:
+            print(json.dumps(validate(json.load(sys.stdin)), ensure_ascii=False, indent=2))
+        except CONFIG_ERRORS as e:
+            print(f'Invalid settings: {e}', file=sys.stderr)
+            sys.exit(1)
+        return
+
+    # when systemd stops the service (SIGTERM), write buffered history and battery usage to disk
+    def stop(signum, frame):
+        raise SystemExit(0)
+    signal.signal(signal.SIGTERM, stop)
+    signal.signal(signal.SIGINT, stop)
+
+    profile = Profile()
+    try:
+        uevents = Uevents()
+        profile.live = True
+    except OSError as e:
+        uevents = None
+        log(f'could not open uevent socket ({e}); AC and profile will be read every round')
+    mains = on_mains()
+    auto, alerts, usage = Auto(mains, profile), Alerts(), Usage()
+    # settings are read in the loop (when mtime changes); defaults at first
+    config, config_mtime = json.loads(json.dumps(DEFAULT)), object()
+    never = float('-inf')
+    last_history = last_prune = last_fan = last_fault = never
+    last_flush = time.monotonic()
+    mains_dirty = False   # with the uevent socket: AC must be read again
+    hot = False
+    log('started')
+    try:
+        while True:
+            try:
+                mtime = CONFIG.stat().st_mtime if CONFIG.exists() else None
+                if mtime != config_mtime:
+                    config_mtime, config = mtime, load_config()
+                    log(f"settings: automatic {'on' if config['enabled'] else 'off'}")
+                now = time.monotonic()
+                history_due = now - last_history >= HISTORY_EVERY
+                # AC is read at most once per round; with the socket only when events were lost and on record
+                if uevents is None or mains_dirty or history_due:
+                    mains, mains_dirty = on_mains(), False
+                if QC71.exists() and auto.busy(config):
+                    auto.tick(config, mains)
+                else:
+                    # when off do not touch the EC; do not re-apply needlessly once turned on
+                    auto.mains, auto.reapply_at = mains, 0
+                temp = cpu_temp()
+                hot = temp is not None and temp >= HOT_C
+                if history_due:
+                    last_history = now
+                    # fan speed: on AC the energy does not come from the battery, read every minute
+                    # for the chart (~39 interrupts/min); on battery every 5 min, when warm (≥60 °C)
+                    # again every minute
+                    rpm = None
+                    if mains or (temp is not None and temp >= FAN_WARM_C) or now - last_fan >= FAN_EVERY_BATTERY:
+                        last_fan, rpm = now, fan_rpm()
+                    fault = None
+                    if (temp is not None and temp >= FAULT_HOT_C) or now - last_fault >= FAULT_EVERY:
+                        last_fault, fault = now, read(QC71 / 'fan_fault') == '1'
+                    full, design = battery_wh()
+                    watts = battery_watts()
+                    usage.tick(mains, watts)
+                    record([datetime.now().strftime('%Y-%m-%dT%H:%M:%S'), '1' if mains else '0',
+                            read(BAT / 'capacity', ''), fmt(watts, '.2f'), fmt(temp), fmt(rpm, 'd'),
+                            profile.get() or '', fmt(full, '.2f'), fmt(design, '.2f')])
+                    alerts.check(temp, rpm, full, design, fault)
+                    if now - last_prune >= 86400:
+                        last_prune = now
+                        prune()
+                elif temp is not None and temp >= 95:
+                    alerts.check(temp)
+                if now - last_flush >= FLUSH_EVERY:
+                    last_flush = now
+                    flush_history()
+                    usage.flush()
+            except Exception as e:  # keep the service alive
+                log(f'error: {e!r}')
+
+            # wait for the next round: normal round, history record or re-apply after an AC change
+            deadline = min(time.monotonic() + (TICK_HOT if hot else TICK), last_history + HISTORY_EVERY)
+            if auto.reapply_at:
+                deadline = min(deadline, auto.reapply_at)
+            deadline = max(deadline, time.monotonic() + 1)   # do not spin even if the round fails
+            if uevents is None:
+                time.sleep(max(0, deadline - time.monotonic()))
+                continue
+            try:
+                while (left := deadline - time.monotonic()) > 0:
+                    ev = uevents.wait(left)
+                    if ev.get('profile'):
+                        profile.dirty = True
+                    if ev.get('lost'):
+                        profile.dirty = mains_dirty = True
+                    if 'mains' in ev:
+                        if ev['mains'] is None:
+                            mains_dirty = True
+                        else:
+                            mains = ev['mains']
+                    if 'mains' in ev or ev.get('lost'):
+                        break   # AC changed: let the automatic profile react right away
+            except OSError as e:
+                log(f'uevent socket failed ({e}); AC and profile will be read every round')
+                uevents, profile.live = None, False
+    finally:
+        signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGTERM, signal.SIGINT})
+        flush_history()
+        usage.flush()
+        log('stopped')
+
+
+if __name__ == '__main__':
+    main()

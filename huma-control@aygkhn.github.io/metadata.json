@@ -1,0 +1,10 @@
+{
+  "uuid": "huma-control@aygkhn.github.io",
+  "name": "Huma Control Center",
+  "description": "Unofficial control center for the Monster Huma H4 (Uniwill PH4TUX1) on Linux: Quick Settings power mode with fine tuning and Fan Boost, on-screen display on mode and power source changes, automatic screen brightness from the ambient light measured by the camera, optional lock when nobody is at the computer, a top bar button for the Huma Control Center app and its alerts as notifications. Requires the Huma Control Center driver and services. Not affiliated with Monster Notebook or Uniwill.",
+  "shell-version": [
+    "50"
+  ],
+  "version": 1,
+  "url": "https://github.com/aygkhn/huma-control"
+}

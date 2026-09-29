@@ -1,0 +1,60 @@
+# REUSE metadata, see https://reuse.software/spec-3.3/
+# When several annotations match a file, the last one wins. SPDX headers in a
+# file take precedence over this file ("closest"), except where "override" is set.
+version = 1
+
+# Everything not listed below
+[[annotations]]
+path = "**"
+precedence = "closest"
+SPDX-FileCopyrightText = "2026 Gokhan AY <aygkhn@gmail.com>"
+SPDX-License-Identifier = "GPL-2.0-or-later"
+
+# Kernel driver: fork of qc71_laptop, GPL-2.0 only. "aggregate" adds the
+# upstream copyright to the headers in the files; files changed in this
+# project also carry "SPDX-FileCopyrightText: 2026 Gokhan AY" themselves.
+[[annotations]]
+path = "driver/**"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "Barnabás Pőcze and qc71_laptop contributors"
+SPDX-License-Identifier = "GPL-2.0-only"
+
+# Files added to the driver in this project (not derived from qc71_laptop)
+[[annotations]]
+path = [
+    "driver/uniwill_ext.c",
+    "driver/uniwill_ext.h",
+    "driver/fan_tables.h",
+    "driver/models.c",
+    "driver/models.h",
+    "driver/README.md",
+]
+precedence = "closest"
+SPDX-FileCopyrightText = "2026 Gokhan AY <aygkhn@gmail.com>"
+SPDX-License-Identifier = "GPL-2.0-only"
+
+# Icons, screenshots, compiled translations, research dumps and other files
+# that cannot hold a comment header
+[[annotations]]
+path = [
+    "**/*.svg",
+    "**/*.ico",
+    "**/*.png",
+    "**/*.gif",
+    "**/*.mo",
+    "**/*.json",
+    "**/.gitkeep",
+    "**/.gitattributes",
+]
+precedence = "closest"
+SPDX-FileCopyrightText = "2026 Gokhan AY <aygkhn@gmail.com>"
+SPDX-License-Identifier = "GPL-2.0-or-later"
+
+# YuNet face detection model (OpenCV Zoo), unmodified
+[[annotations]]
+path = ["system/yunet.onnx", "system/yunet.onnx.LICENSE"]
+precedence = "override"
+SPDX-FileCopyrightText = "2020 Shiqi Yu <shiqi.yu@gmail.com>"
+SPDX-License-Identifier = "MIT"
+
+# COPYING, driver/LICENSE and LICENSES/ are license texts; REUSE does not annotate them.
