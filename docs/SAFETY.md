@@ -17,7 +17,7 @@ To give you the settings of the vendor's Windows application on Linux, it:
    limits, charging and the keyboard backlight.
 2. **Changes CPU power limits (PL1/PL2) and fan tables.** Wrong values can make the
    laptop run hotter, louder, slower, or shut down to protect itself.
-3. **Changes battery charging behaviour** (charging profile, charging priority).
+3. **Changes battery charging behaviour** (charging profile, USB-C charging priority).
 4. **Can change one byte of a UEFI firmware variable** (power on when the charger
    is plugged in). This asks for the administrator password, keeps a backup and
    verifies the result, but a failed firmware write is the most serious risk here.

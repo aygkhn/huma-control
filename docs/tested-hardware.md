@@ -41,7 +41,7 @@ but are unverified: please run `tools/hw-report.sh` and open a "New model" issue
   / tuned-ppd)
 - Custom fan curve with safety validation
 - White keyboard backlight: levels, Fn+F6 events, idle turn-off
-- Charging profile and charging priority, USB power while off, touchpad toggle key,
+- Charging profile and USB-C charging priority, USB power while off, touchpad toggle key,
   Fn lock, Windows-key lock, microphone mute LED
 - AC Recover (power on when the charger is plugged in) through UEFI, with backup and
   read-back

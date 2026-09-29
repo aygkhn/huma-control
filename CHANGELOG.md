@@ -11,6 +11,9 @@ V4.1; same chassis as TUXEDO InfinityBook Pro 14 Gen6), EC project id `0x13`.
 
 ### Added
 
+- Long descriptions open from an info button instead of filling the pages.
+- The charging priority is named "USB-C charging priority" and explains Monster Control
+  Center's "Type-C Mode".
 - Ambient light page: a screen card shows the current brightness, the mode and a
   "Back to Automatic" button after a manual adjustment.
 - Faster login on battery: while turbo is off, it is allowed for 20 s when a user logs in

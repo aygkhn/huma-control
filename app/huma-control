@@ -320,9 +320,15 @@ LIGHT_INTERVALS = [(s, _('{time} (test)').format(time=duration_label(s))) for s 
 AUTO_STATE = Path('/run/huma-control/automation-state.json')
 HISTORY_FILE = Path('/var/lib/huma-control/history.csv')
 ALERTS_FILE = Path('/run/huma-control/alerts.json')
+# Monster Control Center "Type-C Mode": how a charger on the USB-C / Thunderbolt port shares its power
 CHARGE_PRIORITIES = [
-    ('charge_battery', _('Battery charging'), _('When plugged in, the battery charges first')),
-    ('performance', _('Performance'), _('When plugged in, power goes to the CPU first and the battery charges more slowly')),
+    ('charge_battery', _('Battery first'),
+     _('With a charger on the USB-C (Thunderbolt) port, its power charges the battery first; under heavy '
+       'load the CPU may get less power. Same as "Type-C Mode: Charging Priority" in Monster Control Center.')),
+    ('performance', _('Performance first'),
+     _('With a charger on the USB-C (Thunderbolt) port, its power goes to the CPU first and the battery '
+       'charges more slowly under load. Useful when the USB-C charger is weaker than the laptop needs. Same as '
+       '"Type-C Mode: Performance Priority" in Monster Control Center.')),
 ]
 
 
@@ -783,6 +789,59 @@ def decorate(*rows):
         row.add_prefix(badge(icon, color))
 
 
+# Longer descriptions are hidden behind an info button (the page stays short); short ones stay
+LONG_TEXT = 110
+
+
+def info_button(text):
+    """Info button: the description opens in a popover."""
+    label = Gtk.Label(label=text, wrap=True, max_width_chars=48, xalign=0,
+                      margin_top=12, margin_bottom=12, margin_start=12, margin_end=12)
+    button = Gtk.MenuButton(icon_name='help-about-symbolic', popover=Gtk.Popover(child=label),
+                            valign=Gtk.Align.CENTER, css_classes=['flat', 'circular'], tooltip_text=_('Details'))
+    button.info_label = label
+    return button
+
+
+def _widgets(widget):
+    yield widget
+    child = widget.get_first_child()
+    while child:
+        yield from _widgets(child)
+        child = child.get_next_sibling()
+
+
+def _tidy_row(row):
+    """Long row subtitle → info button (also when the subtitle is set later)."""
+    def check(*_a):
+        text = row.get_subtitle() or ''
+        info = getattr(row, 'info_button', None)
+        if len(text) <= LONG_TEXT:
+            if text and info:
+                info.set_visible(False)
+            return
+        if not info:
+            info = row.info_button = info_button(text)
+            row.add_suffix(info)
+        info.info_label.set_label(text)
+        info.set_visible(True)
+        row.set_subtitle('')
+    row.connect('notify::subtitle', check)
+    check()
+
+
+def tidy_descriptions(page):
+    """Move long group descriptions and row subtitles of a page behind info buttons."""
+    for widget in list(_widgets(page)):
+        if isinstance(widget, Adw.PreferencesGroup):
+            text = widget.get_description() or ''
+            if len(text) > LONG_TEXT and widget.get_header_suffix() is None:
+                widget.set_description(None)
+                widget.set_header_suffix(info_button(text))
+        elif isinstance(widget, Adw.ActionRow):
+            _tidy_row(widget)
+
+
 def toggle_group(options, on_change):
     group = Adw.ToggleGroup(valign=Gtk.Align.CENTER)
     for name, label, icon in options:
@@ -1072,7 +1131,9 @@ class Window(Adw.ApplicationWindow):
                 ('power', _('Power Saving'), 'power-profile-power-saver-symbolic', self._power_page),
                 ('history', _('History'), 'document-open-recent-symbolic', self._history_page),
                 ('about', _('About'), 'help-about-symbolic', self._info_page)):
-            self.stack.add_named(build(), name)
+            page = build()
+            tidy_descriptions(page)
+            self.stack.add_named(page, name)
             self.page_titles[name] = title
             row_box = Gtk.Box(spacing=12, margin_top=8, margin_bottom=8, margin_start=6)
             row_box.append(Gtk.Image(icon_name=icon))
@@ -1443,7 +1504,7 @@ class Window(Adw.ApplicationWindow):
         care = self.care_group = Adw.PreferencesGroup(title=_('Battery Care'), description=_(
             'If the computer is mostly plugged in, keeping the battery full all the time wears it out. '
             'The equivalent of the battery protection mode in Monster Control Center.'))
-        self.priority_row = Adw.ComboRow(title=_('Charging priority'),
+        self.priority_row = Adw.ComboRow(title=_('USB-C charging priority'),
                                          model=Gtk.StringList.new([t for _, t, _ in CHARGE_PRIORITIES]))
         self.priority_row.connect('notify::selected', self._on_charge_choice, 'charging-priority', CHARGE_PRIORITIES)
         self.profile_row = Adw.ComboRow(title=_('Charging profile'),

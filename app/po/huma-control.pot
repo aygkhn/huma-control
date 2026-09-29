@@ -10,7 +10,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: huma-control\n"
 "Report-Msgid-Bugs-To: aygkhn@gmail.com\n"
-"POT-Creation-Date: 2026-09-30 00:28+0300\n"
+"POT-Creation-Date: 2026-09-30 01:10+0300\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -66,7 +66,7 @@ msgid_plural "{n} days"
 msgstr[0] ""
 msgstr[1] ""
 
-#: huma-control:137 huma-control:1981
+#: huma-control:137 huma-control:2042
 msgid "Off"
 msgstr ""
 
@@ -121,8 +121,8 @@ msgstr ""
 msgid "Charges the battery fully; longest runtime"
 msgstr ""
 
-#: huma-control:149 huma-control:153 huma-control:165 huma-control:1224
-#: huma-control:2440 huma-control:3034
+#: huma-control:149 huma-control:153 huma-control:165 huma-control:1285
+#: huma-control:2501 huma-control:3095
 msgid "Balanced"
 msgstr ""
 
@@ -142,15 +142,15 @@ msgstr ""
 msgid "Quiet"
 msgstr ""
 
-#: huma-control:155 huma-control:2359
+#: huma-control:155 huma-control:2420
 msgid "Low"
 msgstr ""
 
-#: huma-control:155 huma-control:2359
+#: huma-control:155 huma-control:2420
 msgid "Medium"
 msgstr ""
 
-#: huma-control:156 huma-control:2359
+#: huma-control:156 huma-control:2420
 msgid "High"
 msgstr ""
 
@@ -158,7 +158,7 @@ msgstr ""
 msgid "38 W, 35 W on battery"
 msgstr ""
 
-#: huma-control:165 huma-control:2327
+#: huma-control:165 huma-control:2388
 msgid "Cool"
 msgstr ""
 
@@ -243,61 +243,65 @@ msgstr ""
 msgid "{time} (test)"
 msgstr ""
 
-#: huma-control:324
-msgid "Battery charging"
-msgstr ""
-
-#: huma-control:324
-msgid "When plugged in, the battery charges first"
-msgstr ""
-
-#: huma-control:325 huma-control:1066 huma-control:1225 huma-control:2441
-#: huma-control:3035
-msgid "Performance"
-msgstr ""
-
 #: huma-control:325
-msgid ""
-"When plugged in, power goes to the CPU first and the battery charges more "
-"slowly"
+msgid "Battery first"
 msgstr ""
 
-#: huma-control:332
+#: huma-control:326
+msgid ""
+"With a charger on the USB-C (Thunderbolt) port, its power charges the "
+"battery first; under heavy load the CPU may get less power. Same as \"Type-C "
+"Mode: Charging Priority\" in Monster Control Center."
+msgstr ""
+
+#: huma-control:328
+msgid "Performance first"
+msgstr ""
+
+#: huma-control:329
+msgid ""
+"With a charger on the USB-C (Thunderbolt) port, its power goes to the CPU "
+"first and the battery charges more slowly under load. Useful when the USB-C "
+"charger is weaker than the laptop needs. Same as \"Type-C Mode: Performance "
+"Priority\" in Monster Control Center."
+msgstr ""
+
+#: huma-control:338
 msgid "CPU is overheating"
 msgstr ""
 
 #. Translators: {temp} is the CPU temperature in °C
-#: huma-control:334
+#: huma-control:340
 #, python-brace-format
 msgid ""
 "CPU at {temp} °C. Make sure the air vents are not blocked; Fan Boost can be "
 "turned on from the Performance page."
 msgstr ""
 
-#: huma-control:336
+#: huma-control:342
 msgid "Fan failure"
 msgstr ""
 
-#: huma-control:336
+#: huma-control:342
 msgid ""
 "The controller reports a fan failure (the fan is not spinning or is stuck)."
 msgstr ""
 
-#: huma-control:337
+#: huma-control:343
 msgid "Fan is not spinning"
 msgstr ""
 
-#: huma-control:337
+#: huma-control:343
 #, python-brace-format
 msgid "The fan is stopped although the CPU is at {temp} °C."
 msgstr ""
 
-#: huma-control:338
+#: huma-control:344
 msgid "Battery health has dropped"
 msgstr ""
 
 #. Translators: {percent} is already formatted as a percentage (e.g. 78%)
-#: huma-control:340
+#: huma-control:346
 #, python-brace-format
 msgid ""
 "When full, the battery holds {full_wh} Wh (design {design_wh} Wh, "
@@ -306,313 +310,321 @@ msgid ""
 msgstr ""
 
 #. Translators: why an automatic performance profile is active; {name} is the rule's app name
-#: huma-control:364
+#: huma-control:370
 #, python-brace-format
 msgid "app: {name}"
 msgstr ""
 
-#: huma-control:364
+#: huma-control:370
 msgid "night hours"
 msgstr ""
 
-#: huma-control:364
+#: huma-control:370
 msgid "on AC"
 msgstr ""
 
-#: huma-control:364
+#: huma-control:370
 msgid "on battery"
 msgstr ""
 
-#: huma-control:381
+#: huma-control:387
 msgid "Another setting is being applied, try again later"
 msgstr ""
 
-#: huma-control:382
+#: huma-control:388
 msgid "The qc71_laptop driver is not loaded"
 msgstr ""
 
-#: huma-control:383
+#: huma-control:389
 msgid "This feature is not supported on this device"
 msgstr ""
 
-#: huma-control:384
+#: huma-control:390
 msgid "The controller did not accept the setting"
 msgstr ""
 
-#: huma-control:385
+#: huma-control:391
 msgid "Turn off \"Power on when plugged in\" first"
 msgstr ""
 
-#: huma-control:387
+#: huma-control:393
 msgid "UEFI variable is not in the expected format; left untouched"
 msgstr ""
 
-#: huma-control:388
+#: huma-control:394
 msgid "This device does not support power on with AC"
 msgstr ""
 
-#: huma-control:389
+#: huma-control:395
 msgid "Turn off \"USB power while off\" first"
 msgstr ""
 
-#: huma-control:391
+#: huma-control:397
 msgid "Could not verify the UEFI variable; the previous value was restored"
 msgstr ""
 
-#: huma-control:392
+#: huma-control:398
 msgid "Power on with AC setting not found on this device"
 msgstr ""
 
-#: huma-control:393
+#: huma-control:399
 msgid "camera not found"
 msgstr ""
 
-#: huma-control:394
+#: huma-control:400
 msgid "camera is open in another application"
 msgstr ""
 
-#: huma-control:395
+#: huma-control:401
 msgid "could not get an image from the camera"
 msgstr ""
 
-#: huma-control:396
+#: huma-control:402
 msgid "could not get an image from the IR camera"
 msgstr ""
 
 #. Translators: {error} is a more detailed error message
-#: huma-control:399
+#: huma-control:405
 #, python-brace-format
 msgid "Invalid settings: {error}"
 msgstr ""
 
-#: huma-control:400
+#: huma-control:406
 #, python-brace-format
 msgid "measurement failed: {error}"
 msgstr ""
 
-#: huma-control:401
+#: huma-control:407
 #, python-brace-format
 msgid "check failed: {error}"
 msgstr ""
 
-#: huma-control:557
+#: huma-control:563
 msgid "Model"
 msgstr ""
 
-#: huma-control:558
+#: huma-control:564
 msgid "Motherboard"
 msgstr ""
 
-#: huma-control:560
+#: huma-control:566
 msgid "Embedded controller (EC) project ID"
 msgstr ""
 
-#: huma-control:562
+#: huma-control:568
 msgid "Processor"
 msgstr ""
 
-#: huma-control:563
+#: huma-control:569
 msgid "Memory"
 msgstr ""
 
-#: huma-control:564
+#: huma-control:570
 msgid "Kernel"
 msgstr ""
 
-#: huma-control:565
+#: huma-control:571
 msgid "qc71_laptop driver"
 msgstr ""
 
-#: huma-control:566
+#: huma-control:572
 msgid "loaded"
 msgstr ""
 
-#: huma-control:566
+#: huma-control:572
 msgid "not loaded"
 msgstr ""
 
-#: huma-control:621
+#: huma-control:627
 msgid "Not authorized"
 msgstr ""
 
-#: huma-control:622
+#: huma-control:628
 msgid "Operation failed"
 msgstr ""
 
-#: huma-control:673
+#: huma-control:679
 #, python-brace-format
 msgid "{hours} h {minutes} min"
 msgstr ""
 
-#: huma-control:674
+#: huma-control:680
 #, python-brace-format
 msgid "{minutes} min"
 msgstr ""
 
-#: huma-control:735
+#: huma-control:741
 msgid "3 min ago"
 msgstr ""
 
-#: huma-control:736
+#: huma-control:742
 msgid "now"
 msgstr ""
 
+#: huma-control:801
+msgid "Details"
+msgstr ""
+
 #. Translators: strftime format for chart labels (day, month and time)
-#: huma-control:1012
+#: huma-control:1071
 #, no-python-format
 msgid "%m/%d %H:%M"
 msgstr ""
 
 #. Translators: strftime format for chart labels (day and month)
-#: huma-control:1016
+#: huma-control:1075
 #, no-python-format
 msgid "%m/%d"
 msgstr ""
 
-#: huma-control:1024
+#: huma-control:1083
 msgid "No records yet"
 msgstr ""
 
-#: huma-control:1065 huma-control:1089
+#: huma-control:1124 huma-control:1150
 msgid "Overview"
 msgstr ""
 
-#: huma-control:1067
+#: huma-control:1125 huma-control:1286 huma-control:2502 huma-control:3096
+msgid "Performance"
+msgstr ""
+
+#: huma-control:1126
 msgid "Automation"
 msgstr ""
 
-#: huma-control:1068 huma-control:1182
+#: huma-control:1127 huma-control:1243
 msgid "Fan"
 msgstr ""
 
-#: huma-control:1069
+#: huma-control:1128
 msgid "Keyboard"
 msgstr ""
 
-#: huma-control:1070
+#: huma-control:1129
 msgid "Ambient Light"
 msgstr ""
 
-#: huma-control:1071 huma-control:1184
+#: huma-control:1130 huma-control:1245
 msgid "Battery"
 msgstr ""
 
-#: huma-control:1072
+#: huma-control:1131
 msgid "Power Saving"
 msgstr ""
 
-#: huma-control:1073 huma-control:2071
+#: huma-control:1132 huma-control:2132
 msgid "History"
 msgstr ""
 
-#: huma-control:1074
+#: huma-control:1133
 msgid "About"
 msgstr ""
 
-#: huma-control:1092
+#: huma-control:1153
 msgid "Pages"
 msgstr ""
 
-#: huma-control:1167
+#: huma-control:1228
 msgid "Laptop"
 msgstr ""
 
-#: huma-control:1181
+#: huma-control:1242
 msgid "CPU"
 msgstr ""
 
-#: huma-control:1183
+#: huma-control:1244
 msgid "Power draw"
 msgstr ""
 
-#: huma-control:1190
+#: huma-control:1251
 msgid "Last 3 minutes"
 msgstr ""
 
-#: huma-control:1191 huma-control:1262
+#: huma-control:1252 huma-control:1323
 msgid "CPU temperature"
 msgstr ""
 
-#: huma-control:1191
+#: huma-control:1252
 msgid "Fan speed (0–5000 rpm)"
 msgstr ""
 
-#: huma-control:1216
+#: huma-control:1277
 msgid "Power Mode"
 msgstr ""
 
-#: huma-control:1217
+#: huma-control:1278
 msgid ""
 "Power Saver = Quiet 20 dB (15 W), Balanced = Balanced Medium (Quiet 20 dB on "
 "battery if the battery power-saving profile is on), Performance = Balanced "
 "High. Same as the Performance tile in Quick Settings."
 msgstr ""
 
-#: huma-control:1220
+#: huma-control:1281
 msgctxt "power mode"
 msgid "Mode"
 msgstr ""
 
-#: huma-control:1223 huma-control:2440 huma-control:3034
+#: huma-control:1284 huma-control:2501 huma-control:3095
 msgid "Power Saver"
 msgstr ""
 
-#: huma-control:1229
+#: huma-control:1290
 msgid "Fine Tuning"
 msgstr ""
 
-#: huma-control:1230
+#: huma-control:1291
 msgid ""
 "The controller mode itself: in Balanced mode the CPU can use full power; in "
 "Quiet mode power and fan noise are limited. When the power mode changes, "
 "this setting follows it."
 msgstr ""
 
-#: huma-control:1232 huma-control:1275 huma-control:1677 huma-control:1774
+#: huma-control:1293 huma-control:1336 huma-control:1738 huma-control:1835
 msgid "Mode"
 msgstr ""
 
-#: huma-control:1237
+#: huma-control:1298
 msgid "Level"
 msgstr ""
 
-#: huma-control:1242 huma-control:1277 huma-control:2335 huma-control:2343
+#: huma-control:1303 huma-control:1338 huma-control:2396 huma-control:2404
 msgid "Fan Boost"
 msgstr ""
 
-#: huma-control:1243
+#: huma-control:1304
 msgid ""
 "Fan always at full speed: the CPU doesn't slow down under long loads, but "
 "it's loud"
 msgstr ""
 
-#: huma-control:1251
+#: huma-control:1312
 msgid ""
 "The driver doesn't support performance modes or isn't loaded. To install: ./"
 "install.sh"
 msgstr ""
 
-#: huma-control:1259
+#: huma-control:1320
 msgid "Current Status"
 msgstr ""
 
-#: huma-control:1260
+#: huma-control:1321
 msgid "Fan speed"
 msgstr ""
 
-#: huma-control:1261
+#: huma-control:1322
 msgid "Fan sensor temperature"
 msgstr ""
 
-#: huma-control:1263
+#: huma-control:1324
 msgid "Fan power"
 msgstr ""
 
-#: huma-control:1271
+#: huma-control:1332
 msgid "Fan Mode"
 msgstr ""
 
-#: huma-control:1272
+#: huma-control:1333
 msgid ""
 "In Automatic mode the laptop manages the fan itself based on temperature. "
 "Fan Boost runs the fan at full speed all the time: it keeps the CPU from "
@@ -620,88 +632,88 @@ msgid ""
 "faster."
 msgstr ""
 
-#: huma-control:1277 huma-control:1882 huma-control:1891 huma-control:2335
+#: huma-control:1338 huma-control:1943 huma-control:1952 huma-control:2396
 msgid "Automatic"
 msgstr ""
 
-#: huma-control:1284
+#: huma-control:1345
 msgid ""
 "The qc71_laptop driver isn't loaded; fan information can't be read. To "
 "install: ./install.sh"
 msgstr ""
 
-#: huma-control:1292
+#: huma-control:1353
 msgid "Backlight"
 msgstr ""
 
-#: huma-control:1293
+#: huma-control:1354
 msgid "Brightness"
 msgstr ""
 
-#: huma-control:1299
+#: huma-control:1360
 msgid "Turn off when idle"
 msgstr ""
 
-#: huma-control:1305
+#: huma-control:1366
 msgid "Start off during daytime"
 msgstr ""
 
-#: huma-control:1315
+#: huma-control:1376
 msgid "Turn on/off by ambient light"
 msgstr ""
 
-#: huma-control:1316
+#: huma-control:1377
 msgid ""
 "Turns on when the room is dark and off when it's bright: on the Ambient "
 "Light page"
 msgstr ""
 
-#: huma-control:1324
+#: huma-control:1385
 msgid "Keys"
 msgstr ""
 
-#: huma-control:1325
+#: huma-control:1386
 msgid "Lock the Windows key"
 msgstr ""
 
-#: huma-control:1326
+#: huma-control:1387
 msgid ""
 "Don't open the Activities overview when it's pressed by accident while gaming"
 msgstr ""
 
-#: huma-control:1330
+#: huma-control:1391
 msgid "Fn lock"
 msgstr ""
 
-#: huma-control:1331
+#: huma-control:1392
 msgid ""
 "When on, F1–F12 work as function keys instead of media and display keys "
 "without pressing Fn"
 msgstr ""
 
-#: huma-control:1335
+#: huma-control:1396
 msgid "Touchpad shortcut"
 msgstr ""
 
-#: huma-control:1336
+#: huma-control:1397
 msgid "Enable the Fn key that turns the touchpad off and on"
 msgstr ""
 
-#: huma-control:1349
+#: huma-control:1410
 msgid "Power Saving Options"
 msgstr ""
 
-#: huma-control:1350
+#: huma-control:1411
 msgid ""
 "The power mode (Power Saver / Balanced / Performance) is on the Performance "
 "page and in the Performance tile in Quick Settings."
 msgstr ""
 
-#: huma-control:1354
+#: huma-control:1415
 msgid "Power-saving automations on battery only"
 msgstr ""
 
-#: huma-control:1355
+#: huma-control:1416
 msgid ""
 "When plugged in, the keyboard backlight isn't turned off in daytime or "
 "bright light; ambient light is measured every 10 minutes. Turning off when "
@@ -709,95 +721,95 @@ msgid ""
 "plugged in. Takes effect as soon as you unplug."
 msgstr ""
 
-#: huma-control:1361
+#: huma-control:1422
 msgid "Power saving will work on battery only"
 msgstr ""
 
-#: huma-control:1362
+#: huma-control:1423
 msgid "Power saving will also work when plugged in"
 msgstr ""
 
-#: huma-control:1365
+#: huma-control:1426
 msgid "Power-saving profile on battery"
 msgstr ""
 
-#: huma-control:1366
+#: huma-control:1427
 msgid "On battery, Balanced uses Quiet 20 dB mode (15 W) with turbo off"
 msgstr ""
 
-#: huma-control:1369
+#: huma-control:1430
 msgid "SD card reader"
 msgstr ""
 
-#: huma-control:1372
+#: huma-control:1433
 msgid "Download updates in the background"
 msgstr ""
 
-#: huma-control:1373
+#: huma-control:1434
 msgid "When off, updates are downloaded when you press \"Update\""
 msgstr ""
 
-#: huma-control:1390
+#: huma-control:1451
 msgid "While Powered Off"
 msgstr ""
 
-#: huma-control:1391
+#: huma-control:1452
 msgid ""
 "The two can't be on at the same time (same as in Monster Control Center). "
 "The power-on setting is stored in UEFI, asks for the administrator password "
 "and takes effect after a restart."
 msgstr ""
 
-#: huma-control:1394
+#: huma-control:1455
 msgid "Power on when plugged in"
 msgstr ""
 
-#: huma-control:1395
+#: huma-control:1456
 msgid ""
 "The computer turns itself on when the charger is connected while it's off"
 msgstr ""
 
-#: huma-control:1398
+#: huma-control:1459
 msgid "USB power while off"
 msgstr ""
 
-#: huma-control:1399
+#: huma-control:1460
 msgid "Charge a phone over USB while the computer is off or hibernating"
 msgstr ""
 
-#: huma-control:1409
+#: huma-control:1470
 msgid "Battery Status"
 msgstr ""
 
-#: huma-control:1411
+#: huma-control:1472
 msgid "Charge"
 msgstr ""
 
-#: huma-control:1411
+#: huma-control:1472
 msgid "Full charge capacity"
 msgstr ""
 
-#: huma-control:1411
+#: huma-control:1472
 msgid "Design capacity"
 msgstr ""
 
-#: huma-control:1412
+#: huma-control:1473
 msgid "Battery health"
 msgstr ""
 
-#: huma-control:1412
+#: huma-control:1473
 msgid "Charge cycles"
 msgstr ""
 
-#: huma-control:1412
+#: huma-control:1473
 msgid "Type"
 msgstr ""
 
-#: huma-control:1422
+#: huma-control:1483
 msgid "Apps Using the Most Battery"
 msgstr ""
 
-#: huma-control:1423
+#: huma-control:1484
 msgid ""
 "An estimate: the screen's share and the idle baseline are subtracted from "
 "the power measured on battery, and the rest is split between apps by CPU and "
@@ -805,215 +817,215 @@ msgid ""
 "it or to uninstall it."
 msgstr ""
 
-#: huma-control:1426 huma-control:2211
+#: huma-control:1487 huma-control:2272
 msgid "System"
 msgstr ""
 
-#: huma-control:1427
+#: huma-control:1488
 msgid "Screen, idle consumption, desktop and background services."
 msgstr ""
 
-#: huma-control:1429
+#: huma-control:1490
 msgid "Since last charge"
 msgstr ""
 
-#: huma-control:1429
+#: huma-control:1490
 msgid "Last 24 hours"
 msgstr ""
 
-#: huma-control:1433
+#: huma-control:1494
 msgid "Period"
 msgstr ""
 
-#: huma-control:1443
+#: huma-control:1504
 msgid "Battery Care"
 msgstr ""
 
-#: huma-control:1444
+#: huma-control:1505
 msgid ""
 "If the computer is mostly plugged in, keeping the battery full all the time "
 "wears it out. The equivalent of the battery protection mode in Monster "
 "Control Center."
 msgstr ""
 
-#: huma-control:1446
-msgid "Charging priority"
+#: huma-control:1507
+msgid "USB-C charging priority"
 msgstr ""
 
-#: huma-control:1449
+#: huma-control:1510
 msgid "Charging profile"
 msgstr ""
 
-#: huma-control:1466
+#: huma-control:1527
 #, python-brace-format
 msgid "since {date}"
 msgstr ""
 
-#: huma-control:1474
+#: huma-control:1535
 msgid "in the last 24 hours"
 msgstr ""
 
-#: huma-control:1485
+#: huma-control:1546
 msgid "No data yet"
 msgstr ""
 
-#: huma-control:1486
+#: huma-control:1547
 msgid "Measured every minute while on battery"
 msgstr ""
 
-#: huma-control:1500
+#: huma-control:1561
 msgid "Other background tasks"
 msgstr ""
 
-#: huma-control:1505
+#: huma-control:1566
 msgid "Other apps"
 msgstr ""
 
-#: huma-control:1509
+#: huma-control:1570
 msgid "None"
 msgstr ""
 
-#: huma-control:1509
+#: huma-control:1570
 msgid "No app used the battery in this period"
 msgstr ""
 
-#: huma-control:1522
+#: huma-control:1583
 #, python-brace-format
 msgid "Total {energy} Wh"
 msgstr ""
 
-#: huma-control:1530
+#: huma-control:1591
 #, python-brace-format
 msgid "Battery share: {percent} ({energy} Wh)"
 msgstr ""
 
-#: huma-control:1533
+#: huma-control:1594
 #, python-brace-format
 msgid "Running process ({count}):"
 msgid_plural "Running processes ({count}):"
 msgstr[0] ""
 msgstr[1] ""
 
-#: huma-control:1536
+#: huma-control:1597
 #, python-brace-format
 msgid "{name} (PID {pid}) · CPU {cpu} s · memory {memory} MB"
 msgstr ""
 
-#: huma-control:1539
+#: huma-control:1600
 #, python-brace-format
 msgid "Command: {command}"
 msgstr ""
 
-#: huma-control:1541
+#: huma-control:1602
 msgid "Not running right now."
 msgstr ""
 
-#: huma-control:1543
+#: huma-control:1604
 msgid "OK"
 msgstr ""
 
-#: huma-control:1544
+#: huma-control:1605
 msgid "Uninstall…"
 msgstr ""
 
-#: huma-control:1545
+#: huma-control:1606
 msgid "Force Quit"
 msgstr ""
 
-#: huma-control:1546
+#: huma-control:1607
 msgid "Quit"
 msgstr ""
 
-#: huma-control:1565
+#: huma-control:1626
 #, python-brace-format
 msgid "{name}: {count} process quit"
 msgid_plural "{name}: {count} processes quit"
 msgstr[0] ""
 msgstr[1] ""
 
-#: huma-control:1567
+#: huma-control:1628
 #, python-brace-format
 msgid "{name}: {count} process killed"
 msgid_plural "{name}: {count} processes killed"
 msgstr[0] ""
 msgstr[1] ""
 
-#: huma-control:1574
+#: huma-control:1635
 msgid "GNOME Software not found"
 msgstr ""
 
-#: huma-control:1579
+#: huma-control:1640
 msgid "Language"
 msgstr ""
 
-#: huma-control:1580
+#: huma-control:1641
 msgid "System default"
 msgstr ""
 
-#: huma-control:1581
+#: huma-control:1642
 msgid "App language"
 msgstr ""
 
-#: huma-control:1581
+#: huma-control:1642
 msgid "The app restarts to apply it"
 msgstr ""
 
-#: huma-control:1605
+#: huma-control:1666
 msgid "Device Information"
 msgstr ""
 
-#: huma-control:1616
+#: huma-control:1677
 msgid "Troubleshooting"
 msgstr ""
 
-#: huma-control:1617
+#: huma-control:1678
 msgid "Diagnostic report"
 msgstr ""
 
-#: huma-control:1618
+#: huma-control:1679
 msgid ""
 "Collects driver, service and settings status into one file (in the Documents "
 "folder); share this file if something goes wrong"
 msgstr ""
 
-#: huma-control:1620
+#: huma-control:1681
 msgid "Create"
 msgstr ""
 
-#: huma-control:1626
+#: huma-control:1687
 msgid "Recommended Tools"
 msgstr ""
 
-#: huma-control:1627
+#: huma-control:1688
 msgid "Linux equivalents of some Monster Control Center features."
 msgstr ""
 
-#: huma-control:1628
+#: huma-control:1689
 msgid "Night Light"
 msgstr ""
 
-#: huma-control:1628
+#: huma-control:1689
 msgid "Settings → Displays: makes the screen warmer in the evening"
 msgstr ""
 
-#: huma-control:1629
+#: huma-control:1690
 msgid "In-game FPS, temperature and power overlay (sudo dnf install mangohud)"
 msgstr ""
 
-#: huma-control:1630
+#: huma-control:1691
 msgid ""
 "Key remapping (the equivalent of the key settings in Monster Control Center)"
 msgstr ""
 
-#: huma-control:1643
+#: huma-control:1704
 msgid "Don't change"
 msgstr ""
 
-#: huma-control:1645
+#: huma-control:1706
 msgid "Automatic Profiles"
 msgstr ""
 
-#: huma-control:1646
+#: huma-control:1707
 msgid ""
 "The Huma Control Center service changes the performance mode by itself based "
 "on conditions, even when you're logged out. Priority: open app > night hours "
@@ -1021,205 +1033,205 @@ msgid ""
 "mode; a mode you choose manually is kept until conditions change."
 msgstr ""
 
-#: huma-control:1649
+#: huma-control:1710
 msgid "Change mode by rules"
 msgstr ""
 
-#: huma-control:1650
+#: huma-control:1711
 msgid "Now"
 msgstr ""
 
-#: huma-control:1657
+#: huma-control:1718
 msgid "By Power Source"
 msgstr ""
 
-#: huma-control:1658
+#: huma-control:1719
 msgid ""
 "With \"Don't change\" the power mode applies; on battery, if \"Power-saving "
 "profile on battery\" on the Power Saving page is on, the Balanced mode runs "
 "as Quiet 20 dB. A mode you choose here takes priority."
 msgstr ""
 
-#: huma-control:1661
+#: huma-control:1722
 msgid "When plugged in"
 msgstr ""
 
-#: huma-control:1662
+#: huma-control:1723
 msgid "When on battery"
 msgstr ""
 
-#: huma-control:1671
+#: huma-control:1732
 msgid "Night"
 msgstr ""
 
-#: huma-control:1671
+#: huma-control:1732
 msgid "Keep the fan quiet during set hours (e.g. at night)."
 msgstr ""
 
-#: huma-control:1674
+#: huma-control:1735
 msgid "During night hours"
 msgstr ""
 
-#: huma-control:1675
+#: huma-control:1736
 msgid "Start (HH:MM)"
 msgstr ""
 
-#: huma-control:1676
+#: huma-control:1737
 msgid "End (HH:MM)"
 msgstr ""
 
-#: huma-control:1685
+#: huma-control:1746
 msgid "Apps"
 msgstr ""
 
-#: huma-control:1686
+#: huma-control:1747
 msgid ""
 "While one of these apps is open, the chosen mode is used. E.g. Quiet 20 dB "
 "for the browser on battery: the CPU draws less power while you watch videos."
 msgstr ""
 
-#: huma-control:1688 huma-control:1784 huma-control:1810
+#: huma-control:1749 huma-control:1845 huma-control:1871
 msgid "Add"
 msgstr ""
 
-#: huma-control:1690
+#: huma-control:1751
 msgid "Choose App…"
 msgstr ""
 
-#: huma-control:1691
+#: huma-control:1752
 msgid "By Command Line…"
 msgstr ""
 
-#: huma-control:1706 huma-control:2658
+#: huma-control:1767 huma-control:2719
 msgid "Save"
 msgstr ""
 
-#: huma-control:1718
+#: huma-control:1779
 msgid "while open"
 msgstr ""
 
-#: huma-control:1718
+#: huma-control:1779
 #, python-brace-format
 msgid "while “{match}” is running"
 msgstr ""
 
-#: huma-control:1720
+#: huma-control:1781
 msgid ", on battery only"
 msgstr ""
 
-#: huma-control:1723
+#: huma-control:1784
 msgid "Remove"
 msgstr ""
 
-#: huma-control:1734
+#: huma-control:1795
 msgid "No rules"
 msgstr ""
 
-#: huma-control:1734
+#: huma-control:1795
 msgid "Add one with \"Add\" at the top right"
 msgstr ""
 
-#: huma-control:1740
+#: huma-control:1801
 #, python-brace-format
 msgid "There is already a rule for {name}"
 msgstr ""
 
-#: huma-control:1747
+#: huma-control:1808
 #, python-brace-format
 msgid "{name} added; press Save to apply"
 msgstr ""
 
-#: huma-control:1753 huma-control:1799
+#: huma-control:1814 huma-control:1860
 msgid "App Rule"
 msgstr ""
 
-#: huma-control:1753
+#: huma-control:1814
 msgid "Search for the app and choose it."
 msgstr ""
 
-#: huma-control:1755
+#: huma-control:1816
 msgid "Search apps"
 msgstr ""
 
-#: huma-control:1776 huma-control:1805
+#: huma-control:1837 huma-control:1866
 msgid "On battery only"
 msgstr ""
 
-#: huma-control:1783 huma-control:1809
+#: huma-control:1844 huma-control:1870
 msgid "Cancel"
 msgstr ""
 
-#: huma-control:1800
+#: huma-control:1861
 msgid ""
 "Enter some text that appears in the app's command line (e.g. \"code\" or the "
 "path of the program)."
 msgstr ""
 
-#: huma-control:1802
+#: huma-control:1863
 msgid "Name (e.g. VS Code)"
 msgstr ""
 
-#: huma-control:1803
+#: huma-control:1864
 msgid "Text to look for"
 msgstr ""
 
-#: huma-control:1835 huma-control:2756
+#: huma-control:1896 huma-control:2817
 msgid "Could not save"
 msgstr ""
 
-#: huma-control:1840
+#: huma-control:1901
 msgid "Automatic profiles saved"
 msgstr ""
 
-#: huma-control:1858 huma-control:2864
+#: huma-control:1919 huma-control:2925
 msgid "Measuring…"
 msgstr ""
 
-#: huma-control:1878
+#: huma-control:1939
 msgid "Manual brightness"
 msgstr ""
 
-#: huma-control:1879
+#: huma-control:1940
 msgid "Automatic brightness is off: the slider sets the screen"
 msgstr ""
 
-#: huma-control:1883
+#: huma-control:1944
 msgid "No decision yet (made at the first measurement after login)"
 msgstr ""
 
-#: huma-control:1886
+#: huma-control:1947
 #, python-brace-format
 msgid "{stage} (measurement {value})"
 msgstr ""
 
-#: huma-control:1888
+#: huma-control:1949
 #, python-brace-format
 msgid "Adjusted by hand ({time})"
 msgstr ""
 
-#: huma-control:1889
+#: huma-control:1950
 msgid "back to automatic when the light changes or after 20 minutes"
 msgstr ""
 
-#: huma-control:1892
+#: huma-control:1953
 #, python-brace-format
 msgid "target {target}"
 msgstr ""
 
-#: huma-control:1909
+#: huma-control:1970
 msgid "NOW"
 msgstr ""
 
-#: huma-control:1917
+#: huma-control:1978
 #, python-brace-format
 msgid "Current ambient light: {stage}, screen {percent}."
 msgstr ""
 
-#: huma-control:1920
+#: huma-control:1981
 msgid "First measure the ambient light with \"Measure Now\"."
 msgstr ""
 
-#: huma-control:1922
+#: huma-control:1983
 msgid ""
 "Instead of typing a percentage, set the screen to what suits your eyes with "
 "the brightness slider (or the brightness keys), then press Save: the current "
@@ -1227,73 +1239,73 @@ msgid ""
 "screen always goes to this brightness in this light."
 msgstr ""
 
-#: huma-control:1929
+#: huma-control:1990
 #, python-brace-format
 msgid "Measurement ~{value} and below"
 msgstr ""
 
-#: huma-control:1929
+#: huma-control:1990
 #, python-brace-format
 msgid "Measurement ~{value}"
 msgstr ""
 
-#: huma-control:1930
+#: huma-control:1991
 #, python-brace-format
 msgid "Measurement ~{value} (normal room)"
 msgstr ""
 
-#: huma-control:1930
+#: huma-control:1991
 #, python-brace-format
 msgid "Measurement ~{value} (by a window)"
 msgstr ""
 
-#: huma-control:1931
+#: huma-control:1992
 #, python-brace-format
 msgid "Measurement ~{value} and above (sunlight threshold)"
 msgstr ""
 
-#: huma-control:1936
+#: huma-control:1997
 msgid "Checking…"
 msgstr ""
 
-#: huma-control:1940
+#: huma-control:2001
 msgid "The camera is in use by another app: someone is assumed to be there"
 msgstr ""
 
-#: huma-control:1941
+#: huma-control:2002
 msgid "Someone is there: the screen won't dim"
 msgstr ""
 
-#: huma-control:1942
+#: huma-control:2003
 msgid "Nobody is there: the screen would lock and turn off"
 msgstr ""
 
-#: huma-control:1943
+#: huma-control:2004
 msgid "Could not check"
 msgstr ""
 
-#: huma-control:1962
+#: huma-control:2023
 msgid "Measure first"
 msgstr ""
 
-#: huma-control:1962
+#: huma-control:2023
 msgid "Could not read the screen brightness"
 msgstr ""
 
-#: huma-control:1966
+#: huma-control:2027
 #, python-brace-format
 msgid "Saved: in \"{stage}\" light the screen is now at {percent}"
 msgstr ""
 
-#: huma-control:1981
+#: huma-control:2042
 msgid "No rule applies"
 msgstr ""
 
-#: huma-control:1986
+#: huma-control:2047
 msgid "Fan Curve"
 msgstr ""
 
-#: huma-control:1987
+#: huma-control:2048
 msgid ""
 "When off, Monster Control Center's tables are used (each performance mode "
 "has its own curve). When on, the curve below applies in all modes. Drag the "
@@ -1302,299 +1314,299 @@ msgid ""
 "shutting down if needed) is always active."
 msgstr ""
 
-#: huma-control:1991
+#: huma-control:2052
 msgid "Custom fan curve"
 msgstr ""
 
-#: huma-control:2000
+#: huma-control:2061
 msgid "Fan power when cool"
 msgstr ""
 
-#: huma-control:2001
+#: huma-control:2062
 msgid "Below the first point (0 = fan stops)"
 msgstr ""
 
-#: huma-control:2006
+#: huma-control:2067
 msgid "Presets"
 msgstr ""
 
-#: huma-control:2016
+#: huma-control:2077
 msgid "Add Point"
 msgstr ""
 
-#: huma-control:2016
+#: huma-control:2077
 msgid "Remove Point"
 msgstr ""
 
-#: huma-control:2021
+#: huma-control:2082
 msgid "Apply"
 msgstr ""
 
-#: huma-control:2040
+#: huma-control:2101
 msgid "Fan curve: Monster Control Center tables"
 msgstr ""
 
-#: huma-control:2048
+#: huma-control:2109
 msgid "Custom fan curve applied"
 msgstr ""
 
-#: huma-control:2072
+#: huma-control:2133
 msgid ""
 "The Huma Control Center service records every minute (even when you're "
 "logged out); kept for 90 days."
 msgstr ""
 
-#: huma-control:2073
+#: huma-control:2134
 msgid "Range"
 msgstr ""
 
-#: huma-control:2081
+#: huma-control:2142
 msgid "Average draw on battery"
 msgstr ""
 
-#: huma-control:2081
+#: huma-control:2142
 msgid "Highest CPU temperature"
 msgstr ""
 
-#: huma-control:2082
+#: huma-control:2143
 msgid "Battery capacity"
 msgstr ""
 
-#: huma-control:2082
+#: huma-control:2143
 msgid "Performance mode breakdown"
 msgstr ""
 
-#: huma-control:2092
+#: huma-control:2153
 msgid "Power Draw (on Battery)"
 msgstr ""
 
-#: huma-control:2093
+#: huma-control:2154
 msgid "CPU Temperature"
 msgstr ""
 
-#: huma-control:2094
+#: huma-control:2155
 msgid "Battery Charge"
 msgstr ""
 
-#: huma-control:2095
+#: huma-control:2156
 msgid "Fan Speed"
 msgstr ""
 
-#: huma-control:2096
+#: huma-control:2157
 msgid "Battery Capacity (Full Charge)"
 msgstr ""
 
-#: huma-control:2102
+#: huma-control:2163
 msgid "Recent Alerts"
 msgstr ""
 
-#: huma-control:2172 huma-control:2173 huma-control:2174 huma-control:2176
+#: huma-control:2233 huma-control:2234 huma-control:2235 huma-control:2237
 msgid "No records"
 msgstr ""
 
-#: huma-control:2195
+#: huma-control:2256
 msgid "No alerts"
 msgstr ""
 
-#: huma-control:2195
+#: huma-control:2256
 msgid "Watching for overheating, fan failure and battery health"
 msgstr ""
 
-#: huma-control:2211
+#: huma-control:2272
 msgid "Driver"
 msgstr ""
 
-#: huma-control:2213
+#: huma-control:2274
 msgid "Modules"
 msgstr ""
 
-#: huma-control:2214
+#: huma-control:2275
 msgid "Services"
 msgstr ""
 
-#: huma-control:2216
+#: huma-control:2277
 msgid "Power mode"
 msgstr ""
 
-#: huma-control:2217
+#: huma-control:2278
 msgid "Module options"
 msgstr ""
 
-#: huma-control:2218
+#: huma-control:2279
 msgid "Huma Control Center settings"
 msgstr ""
 
-#: huma-control:2219
+#: huma-control:2280
 msgid "Driver files"
 msgstr ""
 
-#: huma-control:2220
+#: huma-control:2281
 msgid "Wireless"
 msgstr ""
 
-#: huma-control:2221
+#: huma-control:2282
 msgid "Extensions"
 msgstr ""
 
-#: huma-control:2222
+#: huma-control:2283
 msgid "Driver log"
 msgstr ""
 
-#: huma-control:2223
+#: huma-control:2284
 msgid "Service log"
 msgstr ""
 
-#: huma-control:2227
+#: huma-control:2288
 #, python-brace-format
 msgid "Huma Control Center diagnostic report — {time}"
 msgstr ""
 
-#: huma-control:2231
+#: huma-control:2292
 #, python-brace-format
 msgid "Diagnostic report: {path}"
 msgstr ""
 
-#: huma-control:2234
+#: huma-control:2295
 #, python-brace-format
 msgid "Could not write the diagnostic report: {error}"
 msgstr ""
 
-#: huma-control:2236
+#: huma-control:2297
 msgid "Preparing diagnostic report…"
 msgstr ""
 
-#: huma-control:2293
+#: huma-control:2354
 msgid "read error:"
 msgstr ""
 
-#: huma-control:2327
+#: huma-control:2388
 msgid "Warm"
 msgstr ""
 
-#: huma-control:2327
+#: huma-control:2388
 msgid "Hot"
 msgstr ""
 
-#: huma-control:2332 huma-control:2337
+#: huma-control:2393 huma-control:2398
 msgid "Stopped"
 msgstr ""
 
-#: huma-control:2333
+#: huma-control:2394
 msgid "rpm"
 msgstr ""
 
-#: huma-control:2334
+#: huma-control:2395
 #, python-brace-format
 msgid "{mode} · sensor {temperature}"
 msgstr ""
 
-#: huma-control:2338
+#: huma-control:2399
 #, python-brace-format
 msgid "{rpm} rpm"
 msgstr ""
 
-#: huma-control:2343
+#: huma-control:2404
 msgid "Fan: automatic"
 msgstr ""
 
-#: huma-control:2345
+#: huma-control:2406
 msgid "Driver not loaded"
 msgstr ""
 
-#: huma-control:2346
+#: huma-control:2407
 msgid "Fan: unknown"
 msgstr ""
 
-#: huma-control:2352
+#: huma-control:2413
 msgid "UPower not available"
 msgstr ""
 
-#: huma-control:2361
+#: huma-control:2422
 #, python-brace-format
 msgid "{time} left"
 msgstr ""
 
-#: huma-control:2362
+#: huma-control:2423
 msgid "Discharging"
 msgstr ""
 
-#: huma-control:2364
+#: huma-control:2425
 msgid "Plugged in"
 msgstr ""
 
-#: huma-control:2365
+#: huma-control:2426
 #, python-brace-format
 msgid "Charging +{power} W"
 msgstr ""
 
-#: huma-control:2367
+#: huma-control:2428
 msgid "Full"
 msgstr ""
 
-#: huma-control:2367
+#: huma-control:2428
 msgid "Pending charge"
 msgstr ""
 
-#: huma-control:2368
+#: huma-control:2429
 #, python-brace-format
 msgid "{time} until full"
 msgstr ""
 
-#: huma-control:2370
+#: huma-control:2431
 msgid "Charging"
 msgstr ""
 
-#: huma-control:2393 huma-control:2413
+#: huma-control:2454 huma-control:2474
 #, python-brace-format
 msgid "CPU power limit {limit}"
 msgstr ""
 
-#: huma-control:2398
+#: huma-control:2459
 msgid "The controller's setting wasn't recognized; choose a mode"
 msgstr ""
 
-#: huma-control:2403 huma-control:2417
+#: huma-control:2464 huma-control:2478
 msgid "Custom mode"
 msgstr ""
 
-#: huma-control:2414
+#: huma-control:2475
 msgid "Fan Boost on"
 msgstr ""
 
-#: huma-control:2418
+#: huma-control:2479
 msgid "The controller's setting wasn't recognized; choose a mode below"
 msgstr ""
 
-#: huma-control:2461
+#: huma-control:2522
 msgid "charging"
 msgstr ""
 
-#: huma-control:2461
+#: huma-control:2522
 msgid "discharging"
 msgstr ""
 
-#: huma-control:2461
+#: huma-control:2522
 msgid "full"
 msgstr ""
 
-#: huma-control:2462
+#: huma-control:2523
 msgid "not charging"
 msgstr ""
 
-#: huma-control:2467
+#: huma-control:2528
 msgid "Not reported by the controller"
 msgstr ""
 
-#: huma-control:2489
+#: huma-control:2550
 #, python-brace-format
 msgid "Keyboard backlight: {level}"
 msgstr ""
 
-#: huma-control:2505
+#: huma-control:2566
 msgid "Measurement"
 msgstr ""
 
-#: huma-control:2506
+#: huma-control:2567
 msgid ""
 "This laptop has no light sensor; ambient light is measured with the camera. "
 "During a measurement the camera light turns on briefly (~1.5 s) and no image "
@@ -1606,79 +1618,79 @@ msgid ""
 "the hundreds or thousands."
 msgstr ""
 
-#: huma-control:2512
+#: huma-control:2573
 msgid "Last measurement"
 msgstr ""
 
-#: huma-control:2513
+#: huma-control:2574
 msgid "Measure Now"
 msgstr ""
 
-#: huma-control:2516
+#: huma-control:2577
 msgid "Measurement interval"
 msgstr ""
 
-#: huma-control:2520
+#: huma-control:2581
 msgid "Measurement interval saved"
 msgstr ""
 
-#: huma-control:2529
+#: huma-control:2590
 msgid "Keyboard Backlight"
 msgstr ""
 
-#: huma-control:2530
+#: huma-control:2591
 msgid "Turn on/off automatically"
 msgstr ""
 
-#: huma-control:2531
+#: huma-control:2592
 msgid "Very dark → bright, dark → dim, bright → off"
 msgstr ""
 
-#: huma-control:2534
+#: huma-control:2595
 msgid "The keyboard backlight will turn on and off with the ambient light"
 msgstr ""
 
-#: huma-control:2535
+#: huma-control:2596
 msgid "The keyboard backlight won't change with the ambient light"
 msgstr ""
 
-#: huma-control:2537
+#: huma-control:2598
 msgid "Dark threshold (dim)"
 msgstr ""
 
-#: huma-control:2538
+#: huma-control:2599
 msgid ""
 "Below it is dark (backlight dim), above 1.5 times it is bright (backlight "
 "off)"
 msgstr ""
 
-#: huma-control:2541
+#: huma-control:2602
 msgid "It's Dark Now"
 msgstr ""
 
-#: huma-control:2542
+#: huma-control:2603
 msgid ""
 "Set it with the room as dark as you like: makes the threshold slightly above "
 "the current measurement"
 msgstr ""
 
-#: huma-control:2549
+#: huma-control:2610
 msgid "Very dark threshold"
 msgstr ""
 
-#: huma-control:2550
+#: huma-control:2611
 msgid "Below this measurement the keyboard backlight is bright"
 msgstr ""
 
-#: huma-control:2552
+#: huma-control:2613
 msgid "It's Very Dark Now"
 msgstr ""
 
-#: huma-control:2564
+#: huma-control:2625
 msgid "Screen Brightness"
 msgstr ""
 
-#: huma-control:2565
+#: huma-control:2626
 msgid ""
 "The current brightness counts as your preference for the current light: the "
 "screen dims as the room gets darker and brightens as it gets lighter. Moving "
@@ -1687,118 +1699,118 @@ msgid ""
 "in Quick Settings."
 msgstr ""
 
-#: huma-control:2570
+#: huma-control:2631
 msgid "Adjust to ambient light"
 msgstr ""
 
-#: huma-control:2571
+#: huma-control:2632
 msgid "The brightness slider stays as fine-tuning"
 msgstr ""
 
-#: huma-control:2574
+#: huma-control:2635
 msgid "Automatic screen brightness turned on"
 msgstr ""
 
-#: huma-control:2575
+#: huma-control:2636
 msgid "Automatic screen brightness turned off"
 msgstr ""
 
-#: huma-control:2576
+#: huma-control:2637
 msgid "Sensitivity"
 msgstr ""
 
-#: huma-control:2577
+#: huma-control:2638
 msgid "How much ambient light changes affect the screen"
 msgstr ""
 
-#: huma-control:2578
+#: huma-control:2639
 msgctxt "sensitivity"
 msgid "Low"
 msgstr ""
 
-#: huma-control:2579
+#: huma-control:2640
 msgctxt "sensitivity"
 msgid "Medium"
 msgstr ""
 
-#: huma-control:2580
+#: huma-control:2641
 msgctxt "sensitivity"
 msgid "High"
 msgstr ""
 
-#: huma-control:2582
+#: huma-control:2643
 msgid "Sensitivity saved"
 msgstr ""
 
-#: huma-control:2584
+#: huma-control:2645
 msgid "Full brightness in sunlight"
 msgstr ""
 
-#: huma-control:2585
+#: huma-control:2646
 msgid ""
 "In sunlight or very bright surroundings the screen goes to 100%, wherever "
 "the slider is"
 msgstr ""
 
-#: huma-control:2589
+#: huma-control:2650
 msgid "Full brightness in sunlight turned on"
 msgstr ""
 
-#: huma-control:2590
+#: huma-control:2651
 msgid "Full brightness in sunlight turned off"
 msgstr ""
 
-#: huma-control:2592
+#: huma-control:2653
 msgid "Sunlight threshold"
 msgstr ""
 
-#: huma-control:2593
+#: huma-control:2654
 msgid ""
 "The scale has no upper limit: dark room ~0-20, normal room ~50-255, by a "
 "window hundreds, sunlight thousands. Between 255 and this threshold the "
 "screen brightens step by step"
 msgstr ""
 
-#: huma-control:2597
+#: huma-control:2658
 msgid "It's Sunny Now"
 msgstr ""
 
-#: huma-control:2598
+#: huma-control:2659
 msgid ""
 "Press while in sunlight: the threshold becomes slightly below the current "
 "measurement"
 msgstr ""
 
-#: huma-control:2604
+#: huma-control:2665
 msgid "Method"
 msgstr ""
 
-#: huma-control:2604
+#: huma-control:2665
 msgid "Levels"
 msgstr ""
 
-#: huma-control:2604
+#: huma-control:2665
 msgid "Relative"
 msgstr ""
 
-#: huma-control:2605
+#: huma-control:2666
 msgid ""
 "Levels: a set percentage for each light level · Relative: based on the slider"
 msgstr ""
 
-#: huma-control:2609
+#: huma-control:2670
 msgid "Method saved"
 msgstr ""
 
-#: huma-control:2626
+#: huma-control:2687
 msgid "Back to Automatic"
 msgstr ""
 
-#: huma-control:2638
+#: huma-control:2699
 msgid "Screen Percentages (%)"
 msgstr ""
 
-#: huma-control:2639
+#: huma-control:2700
 msgid ""
 "The screen percentage for each light level. If the measurement is between "
 "two levels, the screen moves step by step to a value in between. If you "
@@ -1806,15 +1818,15 @@ msgid ""
 "level; press Save below to make it permanent."
 msgstr ""
 
-#: huma-control:2657
+#: huma-control:2718
 msgid "Save the current brightness for this light"
 msgstr ""
 
-#: huma-control:2667
+#: huma-control:2728
 msgid "When Nobody Is There"
 msgstr ""
 
-#: huma-control:2668
+#: huma-control:2729
 msgid ""
 "When the keyboard and touchpad aren't touched, the camera takes one look: if "
 "nobody is there, the screen locks and turns off (it looks again after 10 s "
@@ -1825,252 +1837,252 @@ msgid ""
 "assumed to be there."
 msgstr ""
 
-#: huma-control:2675
+#: huma-control:2736
 msgid "Lock and turn off the screen when nobody is there"
 msgstr ""
 
-#: huma-control:2676
+#: huma-control:2737
 msgid "Face detection"
 msgstr ""
 
-#: huma-control:2676
+#: huma-control:2737
 msgid "Not installed: ./install.sh"
 msgstr ""
 
-#: huma-control:2679
+#: huma-control:2740
 msgid "Presence check turned on"
 msgstr ""
 
-#: huma-control:2679
+#: huma-control:2740
 msgid "Presence check turned off"
 msgstr ""
 
-#: huma-control:2680
+#: huma-control:2741
 msgid "Look Now"
 msgstr ""
 
-#: huma-control:2684
+#: huma-control:2745
 msgid "When to look"
 msgstr ""
 
-#: huma-control:2684
+#: huma-control:2745
 msgid "After this long without input"
 msgstr ""
 
-#: huma-control:2689 huma-control:2696 huma-control:2775
+#: huma-control:2750 huma-control:2757 huma-control:2836
 msgid "Saved"
 msgstr ""
 
-#: huma-control:2692
+#: huma-control:2753
 msgid "Camera"
 msgstr ""
 
-#: huma-control:2692
+#: huma-control:2753
 msgid "The IR camera also sees in the dark"
 msgstr ""
 
-#: huma-control:2693
+#: huma-control:2754
 msgid "IR camera"
 msgstr ""
 
-#: huma-control:2693
+#: huma-control:2754
 msgid "Normal camera"
 msgstr ""
 
-#: huma-control:2707
+#: huma-control:2768
 msgid "Show changes on screen"
 msgstr ""
 
-#: huma-control:2708
+#: huma-control:2769
 msgid ""
 "When the screen or keyboard backlight changes by itself, an indicator "
 "appears like with the brightness keys"
 msgstr ""
 
-#: huma-control:2712
+#: huma-control:2773
 msgid "Indicator turned on"
 msgstr ""
 
-#: huma-control:2712
+#: huma-control:2773
 msgid "Indicator turned off"
 msgstr ""
 
-#: huma-control:2833
+#: huma-control:2894
 msgid "what you choose is kept when plugged in"
 msgstr ""
 
-#: huma-control:2833
+#: huma-control:2894
 msgid "also when plugged in"
 msgstr ""
 
-#: huma-control:2835
+#: huma-control:2896
 #, python-brace-format
 msgid ""
 "You can also change it with Fn+F6; automatic on/off is on: it is corrected "
 "to the ambient light after a few seconds ({when})."
 msgstr ""
 
-#: huma-control:2837
+#: huma-control:2898
 msgid "You can also change it with Fn+F6."
 msgstr ""
 
-#: huma-control:2839
+#: huma-control:2900
 msgid ""
 "The goal is saving power: even if you change it with Fn+F6, it is corrected "
 "to the ambient light after a few seconds (on battery only; can be changed on "
 "the Power Saving page)."
 msgstr ""
 
-#: huma-control:2841
+#: huma-control:2902
 msgid ""
 "The goal is saving power: even if you change it with Fn+F6, it is corrected "
 "to the ambient light after a few seconds."
 msgstr ""
 
-#: huma-control:2844
+#: huma-control:2905
 msgid ""
 "The backlight turns off if the keyboard and touchpad aren't touched for this "
 "long (also when plugged in) and turns back on when touched"
 msgstr ""
 
-#: huma-control:2852
+#: huma-control:2913
 msgid ""
 "Between sunrise and sunset the backlight starts off at boot, at login and "
 "when waking from sleep (based on location; left alone when plugged in)."
 msgstr ""
 
-#: huma-control:2854
+#: huma-control:2915
 msgid ""
 "Between sunrise and sunset the backlight starts off at boot, at login and "
 "when waking from sleep (based on location)."
 msgstr ""
 
-#: huma-control:2856
+#: huma-control:2917
 msgid ""
 "It stays on if the room is dark; even if you turn it on with Fn+F6, it turns "
 "off again after a few seconds if the room is bright"
 msgstr ""
 
-#: huma-control:2857
+#: huma-control:2918
 msgid "It can be turned on with Fn+F6"
 msgstr ""
 
-#: huma-control:2858
+#: huma-control:2919
 #, python-brace-format
 msgid "Daytime here today: {sunrise}–{sunset}"
 msgstr ""
 
-#: huma-control:2859
+#: huma-control:2920
 msgid "Location unknown: turn on Settings → Privacy → Location Services"
 msgstr ""
 
-#: huma-control:2878
+#: huma-control:2939
 msgid "Could not measure"
 msgstr ""
 
-#: huma-control:2891
+#: huma-control:2952
 #, python-brace-format
 msgid "Measurement {value}: too low for sunlight (normal room ~50-255)"
 msgstr ""
 
-#: huma-control:2895
+#: huma-control:2956
 #, python-brace-format
 msgid ""
 "Sunlight threshold {value}: in light this bright the screen is at full "
 "brightness"
 msgstr ""
 
-#: huma-control:2899
+#: huma-control:2960
 #, python-brace-format
 msgid ""
 "Very dark threshold {value}: this dark, the keyboard backlight is bright"
 msgstr ""
 
-#: huma-control:2903
+#: huma-control:2964
 #, python-brace-format
 msgid "Threshold {value}: a room this dark or darker counts as dark"
 msgstr ""
 
-#: huma-control:2913
+#: huma-control:2974
 msgid "Turning off when idle disabled"
 msgstr ""
 
-#: huma-control:2914
+#: huma-control:2975
 #, python-brace-format
 msgid "The keyboard backlight will turn off after {time}"
 msgstr ""
 
-#: huma-control:2919
+#: huma-control:2980
 msgid "Starting off during daytime turned on"
 msgstr ""
 
-#: huma-control:2920
+#: huma-control:2981
 msgid "Starting off during daytime turned off"
 msgstr ""
 
-#: huma-control:2928
+#: huma-control:2989
 msgid "Location updated"
 msgstr ""
 
-#: huma-control:2947 huma-control:2966
+#: huma-control:3008 huma-control:3027
 msgid "Fan Boost turned on"
 msgstr ""
 
-#: huma-control:2947 huma-control:2966
+#: huma-control:3008 huma-control:3027
 msgid "Fan in automatic mode"
 msgstr ""
 
-#: huma-control:2972
+#: huma-control:3033
 msgid "Touchpad shortcut turned on"
 msgstr ""
 
-#: huma-control:2972
+#: huma-control:3033
 msgid "Touchpad shortcut turned off"
 msgstr ""
 
-#: huma-control:2994
+#: huma-control:3055
 msgid "Power on when plugged in turned on; takes effect after a restart"
 msgstr ""
 
-#: huma-control:2995
+#: huma-control:3056
 msgid "Power on when plugged in turned off; takes effect after a restart"
 msgstr ""
 
-#: huma-control:3004
+#: huma-control:3065
 msgid "USB power while off turned on"
 msgstr ""
 
-#: huma-control:3004
+#: huma-control:3065
 msgid "USB power while off turned off"
 msgstr ""
 
-#: huma-control:3010
+#: huma-control:3071
 msgid "Windows key locked"
 msgstr ""
 
-#: huma-control:3010
+#: huma-control:3071
 msgid "Windows key unlocked"
 msgstr ""
 
-#: huma-control:3016
+#: huma-control:3077
 msgid "Fn lock turned on"
 msgstr ""
 
-#: huma-control:3016
+#: huma-control:3077
 msgid "Fn lock turned off"
 msgstr ""
 
-#: huma-control:3033
+#: huma-control:3094
 #, python-brace-format
 msgid "Power mode: {mode}"
 msgstr ""
 
-#: huma-control:3046
+#: huma-control:3107
 #, python-brace-format
 msgid "SD card reader: {mode}"
 msgstr ""
 
-#: huma-control:3050
+#: huma-control:3111
 msgid "Setting applied"
 msgstr ""
 

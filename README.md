@@ -58,7 +58,7 @@ PH4TUX1 rebrands) are **not enabled**; if you own one, please run
 - Windows-key lock, Fn lock, touchpad toggle key, microphone mute LED
 
 **Battery and power saving**
-- Charging profile (high capacity / balanced / stationary) and charging priority
+- Charging profile (high capacity / balanced / stationary) and USB-C charging priority (Monster Control Center "Type-C Mode")
 - Per-app battery usage estimate (CPU and GPU share while on battery)
 - History of power draw, temperatures and modes (90 days)
 - Power on when the charger is plugged in (UEFI), USB power while off
