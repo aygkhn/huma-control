@@ -21,6 +21,8 @@ V4.1; same chassis as TUXEDO InfinityBook Pro 14 Gen6), EC project id `0x13`.
 
 ### Fixed
 
+- Automatic brightness ignores light readings older than 15 minutes: after a sleep the
+  evening's dark readings kept the screen dim in daylight.
 - Automatic brightness: while adjusting by hand the screen now matches the slider (the slider at
   its end could give 89%); "Measure now (back to automatic)" drops the manual adjustment.
 - At boot tuned could apply its profile before the driver was loaded, leaving the laptop in

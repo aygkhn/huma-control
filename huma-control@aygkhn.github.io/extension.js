@@ -498,6 +498,8 @@ function lightLevel(value) {
 const FULL_TARGET = 1.5;
 // a manual slider adjustment is kept at most this long within the same ambient stage (µs)
 const HOLD_MAX = 20 * 60 * 1000000;
+// readings older than this don't count in the median (e.g. from before a sleep)
+const HISTORY_MAX_MS = 15 * 60 * 1000;
 
 // Stage method: screen percentage for each ambient stage (set in the app);
 // order: very dark, dark, bright, very bright, sunlight
@@ -551,7 +553,7 @@ const BRIGHTNESS_RESUME = GLib.build_filenamev([GLib.get_user_runtime_dir(), 'hu
 
 // GNOME disables and re-enables extensions when the screen locks: learned state (manual
 // adjustment, recent measurements) is kept at module level so it survives the lock
-const KEPT = ['_light', '_reference', '_hold', '_holdSince', '_history', '_stamp', '_shown', '_pref', '_userUpdate'];
+const KEPT = ['_light', '_reference', '_hold', '_holdSince', '_history', '_historyAt', '_stamp', '_shown', '_pref', '_userUpdate'];
 let brightnessState = null;
 
 class AutoBrightness {
@@ -671,12 +673,19 @@ class AutoBrightness {
             return;
         // the camera also sees movement and screen reflections, so readings fluctuate: median of the
         // last 3 (a manual "Measure now" applies immediately; the same reading is not counted
-        // twice when a setting changes)
+        // twice when a setting changes). Only recent readings count: after a night's sleep two
+        // dark readings from the evening kept the screen dim in the morning sun
+        const now = Date.now();
         if (stamp === null) {
             this._history = [value];
+            this._historyAt = [now];
         } else if (stamp !== this._stamp) {
             this._stamp = stamp;
-            this._history = [...this._history ?? [], value].slice(-3);
+            const at = this._historyAt?.length === this._history?.length ? this._historyAt : [];
+            const keep = (this._history ?? []).map((v, i) => [v, at[i] ?? 0])
+                .filter(([, t]) => now - t < HISTORY_MAX_MS).slice(-2);
+            this._history = [...keep.map(([v]) => v), value];
+            this._historyAt = [...keep.map(([, t]) => t), now];
         }
         const sorted = [...this._history ?? [value]].sort((a, b) => a - b);
         value = sorted[Math.floor(sorted.length / 2)];
