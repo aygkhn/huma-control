@@ -122,6 +122,30 @@ def duration_label(seconds):
     return ngettext('{n} hour', '{n} hours', seconds // 3600).format(n=seconds // 3600)
 
 
+def hm_label(seconds):
+    """Hours and minutes, short: 9 h 20 min."""
+    h, m = divmod(int(seconds) // 60, 60)
+    return _('{h} h {m} min').format(h=h, m=m) if h else _('{m} min').format(m=m)
+
+
+ON_BATTERY = Path('/var/lib/huma-control/on-battery.json')   # written by the service at each unplug
+
+
+def on_battery_text():
+    """Since the last unplug: '9 h 20 min · since 100% (6 h 1 min asleep)'; None when plugged in."""
+    d = read_json(ON_BATTERY)
+    if not isinstance(d, dict) or d.get('mains') is not False or not d.get('since'):
+        return None
+    text = hm_label(max(0, time.time() - d['since']))
+    if isinstance(d.get('percent'), int):
+        text += ' · ' + _('since {percent}').format(percent=pct(d['percent']))
+    if 'asleep' in d and d.get('boot_id') == read('/proc/sys/kernel/random/boot_id', ''):
+        asleep = time.clock_gettime(time.CLOCK_BOOTTIME) - time.clock_gettime(time.CLOCK_MONOTONIC) - d['asleep']
+        if asleep >= 60:
+            text += ' (' + _('{time} asleep').format(time=hm_label(asleep)) + ')'
+    return text
+
+
 def days_label(days):
     return ngettext('{n} day', '{n} days', days).format(n=days)
 
@@ -1479,9 +1503,10 @@ class Window(Adw.ApplicationWindow):
         prefs = Adw.PreferencesPage()
         health = Adw.PreferencesGroup(title=_('Battery Status'))
         self.bat_rows = {key: Adw.ActionRow(title=title, css_classes=['property']) for key, title in (
-            ('charge', _('Charge')), ('capacity', _('Full charge capacity')), ('design', _('Design capacity')),
+            ('charge', _('Charge')), ('onbat', _('On battery')), ('capacity', _('Full charge capacity')), ('design', _('Design capacity')),
             ('health', _('Battery health')), ('cycles', _('Charge cycles')), ('tech', _('Type')))}
-        icons = {'charge': ('battery-good-symbolic', 'green'), 'capacity': ('battery-full-charging-symbolic', 'green'),
+        icons = {'charge': ('battery-good-symbolic', 'green'), 'onbat': ('preferences-system-time-symbolic', 'orange'),
+                 'capacity': ('battery-full-charging-symbolic', 'green'),
                  'design': ('battery-level-100-charged-symbolic', 'teal'), 'health': ('emblem-system-symbolic', 'pink'),
                  'cycles': ('view-refresh-symbolic', 'blue'), 'tech': ('dialog-information-symbolic', 'slate')}
         for key, row in self.bat_rows.items():
@@ -2534,6 +2559,9 @@ class Window(Adw.ApplicationWindow):
             status = {'Charging': _('charging'), 'Discharging': _('discharging'), 'Full': _('full'),
                       'Not charging': _('not charging')}.get(info['status'], info['status'])
             r['charge'].set_subtitle(pct(f'{bat["percent"]:.0f}') + f' · {status}' if bat else status)
+            unplugged = on_battery_text()
+            r['onbat'].set_visible(unplugged is not None)
+            r['onbat'].set_subtitle(unplugged or '')
             r['capacity'].set_subtitle(f'{dec(info["full"])} Wh')
             r['design'].set_subtitle(f'{dec(info["design"])} Wh')
             r['health'].set_subtitle(pct(f'{100 * info["full"] / info["design"]:.0f}') if info['design'] else '—')

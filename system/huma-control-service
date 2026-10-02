@@ -549,6 +549,69 @@ class Alerts:
 # ------------------------------------------------------------------ battery usage
 
 USAGE = Path('/var/lib/huma-control/battery-usage.json')
+# Since when on battery (last unplug): {"mains": false, "since": epoch s, "percent": %, "boot_id": ..,
+# "asleep": s}. asleep = CLOCK_BOOTTIME - CLOCK_MONOTONIC at unplug: the time spent suspended since
+# then is the growth of this difference (same boot only). Read by the app and the extensions.
+ON_BATTERY = Path('/var/lib/huma-control/on-battery.json')
+
+
+def asleep_s():
+    return time.clock_gettime(time.CLOCK_BOOTTIME) - time.clock_gettime(time.CLOCK_MONOTONIC)
+
+
+class Unplugged:
+    def __init__(self):
+        self.mains = None
+        try:
+            self.data = json.loads(ON_BATTERY.read_text())
+        except (OSError, ValueError):
+            self.data = {}
+
+    def note(self, mains):
+        if mains is None or mains == self.mains:
+            return
+        first, self.mains = self.mains is None, mains
+        # service (re)started on battery: keep the unplug time that was already written
+        if first and not mains and self.data.get('mains') is False:
+            return
+        self.data = {'mains': True} if mains else {
+            'mains': False, 'since': round(time.time()), 'percent': int(read(BAT / 'capacity', '0') or 0),
+            'boot_id': read('/proc/sys/kernel/random/boot_id', ''), 'asleep': round(asleep_s())}
+        if first and not mains:
+            self.from_history()
+        self.write()
+
+    def from_history(self):
+        """Started on battery without a record (first run): take the unplug time and percentage
+        from the history (first battery row after the last AC row); time asleep is then unknown."""
+        try:
+            rows = HISTORY.read_text().splitlines()[1:]
+        except OSError:
+            return
+        last = None
+        for i in range(len(rows) - 1, -1, -1):
+            if rows[i].split(',')[1:2] == ['1']:
+                last = i
+                break
+        if last is None or last + 1 >= len(rows):
+            return
+        row = rows[last + 1].split(',')
+        try:
+            self.data.update(since=round(datetime.fromisoformat(row[0]).timestamp()), percent=int(row[2]))
+        except (ValueError, IndexError):
+            return
+        self.data.pop('asleep', None)
+
+    def write(self):
+        try:
+            tmp = ON_BATTERY.with_suffix('.tmp')
+            tmp.write_text(json.dumps(self.data))
+            os.chmod(tmp, 0o644)
+            tmp.replace(ON_BATTERY)
+        except OSError as e:
+            log(f'could not write {ON_BATTERY.name}: {e}')
+
+
 # Battery usage file: {"charge": {"start": "YYYY-MM-DDTHH:MM", "percent": capacity at unplug,
 # "wh": {key: Wh}}, "hourly": {"YYYY-MM-DDTHH": {key: Wh}}, "baseline": {"YYYY-MM-DD": W}};
 # keys: "app:<desktop id>", "terminal:<process>", "screen", "system", "desktop" (GNOME Shell)
@@ -818,7 +881,7 @@ def main():
         uevents = None
         log(f'could not open uevent socket ({e}); AC and profile will be read every round')
     mains = on_mains()
-    auto, alerts, usage = Auto(mains, profile), Alerts(), Usage()
+    auto, alerts, usage, unplugged = Auto(mains, profile), Alerts(), Usage(), Unplugged()
     # settings are read in the loop (when mtime changes); defaults at first
     config, config_mtime = json.loads(json.dumps(DEFAULT)), object()
     never = float('-inf')
@@ -841,6 +904,7 @@ def main():
                 # AC is read at most once per round; with the socket only when events were lost and on record
                 if uevents is None or mains_dirty or history_due:
                     mains, mains_dirty = on_mains(), False
+                unplugged.note(mains)
                 if QC71.exists() and auto.busy(config):
                     auto.tick(config, mains)
                 else:
