@@ -6,6 +6,7 @@
 # Usage:    huma-control-power battery-profile <on|off>
 #           huma-control-power card-reader-sleep <on|off>
 #           huma-control-power card-reader-off <on|off>
+#           huma-control-power deep-sleep <on|off>
 set -euo pipefail
 
 PPD=/etc/tuned/ppd.conf
@@ -16,6 +17,9 @@ SLEEP_RULE=/etc/udev/rules.d/90-huma-control-cardreader-pm.rules
 # card reader completely off: USB authorization is removed (no driver binds, no card
 # polling, the USB3 hub it hangs off can sleep); sorts before the sleep rule
 OFF_RULE=/etc/udev/rules.d/89-huma-control-cardreader-off.rules
+# suspend uses S3 ("deep") instead of s2idle: on the Huma H4 V4.1 s2idle draws ~1.33 W while
+# suspended, S3 ~0.44 W (one hour each, 2026-10-02); systemd-sleep writes it at each suspend
+DEEP_SLEEP=/etc/systemd/sleep.conf.d/90-huma-control-deep-sleep.conf
 
 # USB SD card readers handled here, as vendor:product. This is the only place that lists
 # them (the udev rules are generated from it). Only the Realtek reader of the Monster
@@ -24,7 +28,7 @@ OFF_RULE=/etc/udev/rules.d/89-huma-control-cardreader-off.rules
 CARD_READERS=(0bda:0316)
 
 usage() {
-    echo "Usage: huma-control-power <battery-profile|card-reader-sleep|card-reader-off> <on|off>" >&2
+    echo "Usage: huma-control-power <battery-profile|card-reader-sleep|card-reader-off|deep-sleep> <on|off>" >&2
     exit 2
 }
 
@@ -122,6 +126,16 @@ case "$1:$2" in
         for d in $(reader_devices); do
             echo 0 > "$d/authorized"
         done
+        ;;
+    deep-sleep:on)
+        grep -qw deep /sys/power/mem_sleep || fail "This computer does not support S3 (deep) sleep"
+        mkdir -p "${DEEP_SLEEP%/*}"
+        printf '# Huma Control Center -> Power Saving: sleep uses S3 (deep) instead of s2idle\n[Sleep]\nMemorySleepMode=deep\n' > "$DEEP_SLEEP.tmp"
+        chmod 644 "$DEEP_SLEEP.tmp"
+        mv "$DEEP_SLEEP.tmp" "$DEEP_SLEEP"
+        ;;
+    deep-sleep:off)
+        rm -f "$DEEP_SLEEP"
         ;;
     card-reader-off:off)
         rm -f "$OFF_RULE"

@@ -11,6 +11,8 @@ V4.1; same chassis as TUXEDO InfinityBook Pro 14 Gen6), EC project id `0x13`.
 
 ### Added
 
+- Power Saving: "Deep sleep (S3)" switch; on the Huma H4 V4.1 suspend draws 0.44 W instead of
+  1.33 W (s2idle).
 - Long descriptions open from an info button instead of filling the pages.
 - The charging priority is named "USB-C charging priority" and explains Monster Control
   Center's "Type-C Mode".

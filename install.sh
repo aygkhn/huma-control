@@ -58,7 +58,7 @@ if [ "${1:-}" = --uninstall ]; then
     sudo systemctl disable --now huma-control-keyboard.service huma-control-service.service 2>/dev/null || true
     # power saving: back to the defaults (tuned-ppd mapping, card reader on and authorized)
     if [ -x "$POWER" ]; then
-        for f in battery-profile card-reader-off card-reader-sleep; do
+        for f in battery-profile card-reader-off card-reader-sleep deep-sleep; do
             sudo "$POWER" "$f" off || true
         done
     fi

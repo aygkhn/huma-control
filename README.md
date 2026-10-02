@@ -65,6 +65,7 @@ PH4TUX1 rebrands) are **not enabled**; if you own one, please run
 - Power-saving automations only on battery, with measured, low-wakeup services
 - Power-saving profile on battery ("Balanced" runs like Power Saver, turbo off) and an
   SD card reader that sleeps when idle or is switched off completely
+- Deep sleep (S3) while suspended: 0.44 W instead of 1.33 W with s2idle on this laptop
 
 **Ambient light without a light sensor**
 - The laptop has no light sensor: ambient light is measured with the webcam

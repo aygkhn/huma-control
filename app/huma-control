@@ -133,6 +133,7 @@ BATTERY = Path('/sys/class/power_supply/BAT0')
 POWER_HELPER = '/usr/local/libexec/huma-control-power'
 CARD_READER_RULE = Path('/etc/udev/rules.d/90-huma-control-cardreader-pm.rules')
 CARD_READER_OFF = Path('/etc/udev/rules.d/89-huma-control-cardreader-off.rules')
+DEEP_SLEEP_CONF = Path('/etc/systemd/sleep.conf.d/90-huma-control-deep-sleep.conf')
 CARD_MODES = [
     ('off', _('Off'), _("If you don't use cards: the reader never runs or polls for a card, and its USB link "
                            'sleeps too (most efficient). Choose "On" when you want to insert a card')),
@@ -1430,6 +1431,12 @@ class Window(Adw.ApplicationWindow):
         self.card_row = Adw.ComboRow(title=_('SD card reader'),
                                      model=Gtk.StringList.new([label for _, label, _ in CARD_MODES]))
         self.card_row.connect('notify::selected', self._on_card_mode)
+        self.deep_sleep_row = Adw.SwitchRow(
+            title=_('Deep sleep (S3)'),
+            subtitle=_('While suspended the computer draws about a third of the power (measured on this laptop: '
+                       '0.44 W instead of 1.33 W, about 8% of the battery per night instead of 23%). Waking up '
+                       'takes a second or two longer.'))
+        self.deep_sleep_row.connect('notify::active', self._on_power_setting, 'deep-sleep')
         self.updates_row = Adw.SwitchRow(title=_('Download updates in the background'),
                                          subtitle=_('When off, updates are downloaded when you press "Update"'))
         self.battery_profile_row.connect('notify::active', self._on_power_setting, 'battery-profile')
@@ -1439,12 +1446,15 @@ class Window(Adw.ApplicationWindow):
             self.software.bind('download-updates', self.updates_row, 'active', Gio.SettingsBindFlags.DEFAULT)
         decorate((self.battery_profile_row, 'power-profile-power-saver-symbolic', 'green'),
                  (self.card_row, 'media-flash-symbolic', 'slate'),
+                 (self.deep_sleep_row, 'weather-clear-night-symbolic', 'purple'),
                  (self.updates_row, 'software-update-available-symbolic', 'blue'))
-        for r in (self.battery_profile_row, self.card_row, self.updates_row):
+        for r in (self.battery_profile_row, self.card_row, self.deep_sleep_row, self.updates_row):
             saving.add(r)
         has_helper = os.access(POWER_HELPER, os.X_OK)
         self.battery_profile_row.set_visible(has_helper)
         self.card_row.set_visible(has_helper)
+        sleep_modes = read('/sys/power/mem_sleep', '').replace('[', ' ').replace(']', ' ').split()
+        self.deep_sleep_row.set_visible(has_helper and 'deep' in sleep_modes)
         self.updates_row.set_visible(bool(self.software))
         prefs.add(saving)
 
@@ -2342,6 +2352,7 @@ class Window(Adw.ApplicationWindow):
                     'kbd': self.up.kbd_brightness(),
                     'ppd': read('/etc/tuned/ppd.conf', ''),
                     'card_reader': CARD_READER_RULE.exists(),
+                    'deep_sleep': DEEP_SLEEP_CONF.exists(),
                     'card_off': CARD_READER_OFF.exists(),
                     'ac_recover': ac_recover(),
                     'battery': battery_info(),
@@ -2510,6 +2521,7 @@ class Window(Adw.ApplicationWindow):
                 row.set_subtitle(options[names.index(value)][2])
         self.care_group.set_visible(self.priority_row.get_visible() or self.profile_row.get_visible())
         self.battery_profile_row.set_active('\nbalanced=huma-control-battery' in data.get('ppd', ''))
+        self.deep_sleep_row.set_active(bool(data.get('deep_sleep')))
         ac, usb = data.get('ac_recover'), data.get('usb_powershare')
         self.ac_row.set_visible(ac is not None)
         self.ac_row.set_active(bool(ac))
