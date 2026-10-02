@@ -146,6 +146,25 @@ def on_battery_text():
     return text
 
 
+ESTIMATE = Path('/var/lib/huma-control/battery-estimate.json')   # typical power on battery (service)
+
+
+def charge_lasts_text():
+    """While plugged in: how long the current charge lasts with typical use, e.g. '~6 h 50 min
+    (typical use 7.5 W)'; None without an estimate or on battery (then UPower's time left applies)."""
+    if read(BATTERY / 'status', '') == 'Discharging':
+        return None
+    est = read_json(ESTIMATE)
+    try:
+        watts = float(est['typical_w'])
+        wh = int(read(BATTERY / 'charge_now')) * int(read(BATTERY / 'voltage_min_design')) / 1e12
+    except (TypeError, KeyError, ValueError):
+        return None
+    if watts <= 0 or wh <= 0:
+        return None
+    return '~' + hm_label(wh / watts * 3600) + ' ' + _('(typical use {watts} W)').format(watts=dec(watts))
+
+
 def days_label(days):
     return ngettext('{n} day', '{n} days', days).format(n=days)
 
@@ -1503,9 +1522,10 @@ class Window(Adw.ApplicationWindow):
         prefs = Adw.PreferencesPage()
         health = Adw.PreferencesGroup(title=_('Battery Status'))
         self.bat_rows = {key: Adw.ActionRow(title=title, css_classes=['property']) for key, title in (
-            ('charge', _('Charge')), ('onbat', _('On battery')), ('capacity', _('Full charge capacity')), ('design', _('Design capacity')),
+            ('charge', _('Charge')), ('onbat', _('On battery')), ('lasts', _('This charge lasts')), ('capacity', _('Full charge capacity')), ('design', _('Design capacity')),
             ('health', _('Battery health')), ('cycles', _('Charge cycles')), ('tech', _('Type')))}
         icons = {'charge': ('battery-good-symbolic', 'green'), 'onbat': ('preferences-system-time-symbolic', 'orange'),
+                 'lasts': ('battery-good-symbolic', 'teal'),
                  'capacity': ('battery-full-charging-symbolic', 'green'),
                  'design': ('battery-level-100-charged-symbolic', 'teal'), 'health': ('emblem-system-symbolic', 'pink'),
                  'cycles': ('view-refresh-symbolic', 'blue'), 'tech': ('dialog-information-symbolic', 'slate')}
@@ -2562,6 +2582,9 @@ class Window(Adw.ApplicationWindow):
             unplugged = on_battery_text()
             r['onbat'].set_visible(unplugged is not None)
             r['onbat'].set_subtitle(unplugged or '')
+            lasts = charge_lasts_text()
+            r['lasts'].set_visible(lasts is not None)
+            r['lasts'].set_subtitle(lasts or '')
             r['capacity'].set_subtitle(f'{dec(info["full"])} Wh')
             r['design'].set_subtitle(f'{dec(info["design"])} Wh')
             r['health'].set_subtitle(pct(f'{100 * info["full"] / info["design"]:.0f}') if info['design'] else '—')

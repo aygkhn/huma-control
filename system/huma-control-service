@@ -553,6 +553,41 @@ USAGE = Path('/var/lib/huma-control/battery-usage.json')
 # "asleep": s}. asleep = CLOCK_BOOTTIME - CLOCK_MONOTONIC at unplug: the time spent suspended since
 # then is the growth of this difference (same boot only). Read by the app and the extensions.
 ON_BATTERY = Path('/var/lib/huma-control/on-battery.json')
+# Typical power on battery (median of the last 14 days of battery samples): the app and the
+# extensions show "on this charge the battery lasts ~X" while plugged in. {"typical_w": W, "samples": n}
+ESTIMATE = Path('/var/lib/huma-control/battery-estimate.json')
+ESTIMATE_DAYS = 14
+ESTIMATE_EVERY = 3600   # s
+
+
+def write_estimate():
+    flush_history()
+    limit = (datetime.now() - timedelta(days=ESTIMATE_DAYS)).strftime('%Y-%m-%dT%H:%M')
+    watts = []
+    try:
+        with HISTORY.open() as f:
+            next(f, None)
+            for line in f:
+                cols = line.split(',')
+                if len(cols) > 3 and cols[0] >= limit and cols[1] == '0' and cols[3]:
+                    try:
+                        w = -float(cols[3])
+                    except ValueError:
+                        continue
+                    if w > 0:
+                        watts.append(w)
+    except OSError:
+        return
+    if len(watts) < 60:   # less than an hour on battery: no estimate yet
+        return
+    watts.sort()
+    try:
+        tmp = ESTIMATE.with_suffix('.tmp')
+        tmp.write_text(json.dumps({'typical_w': round(watts[len(watts) // 2], 2), 'samples': len(watts)}))
+        os.chmod(tmp, 0o644)
+        tmp.replace(ESTIMATE)
+    except OSError as e:
+        log(f'could not write {ESTIMATE.name}: {e}')
 
 
 def asleep_s():
@@ -885,7 +920,7 @@ def main():
     # settings are read in the loop (when mtime changes); defaults at first
     config, config_mtime = json.loads(json.dumps(DEFAULT)), object()
     never = float('-inf')
-    last_history = last_prune = last_fan = last_fault = never
+    last_history = last_prune = last_fan = last_fault = last_estimate = never
     last_flush = time.monotonic()
     mains_dirty = False   # with the uevent socket: AC must be read again
     hot = False
@@ -930,6 +965,9 @@ def main():
                             read(BAT / 'capacity', ''), fmt(watts, '.2f'), fmt(temp), fmt(rpm, 'd'),
                             profile.get() or '', fmt(full, '.2f'), fmt(design, '.2f')])
                     alerts.check(temp, rpm, full, design, fault)
+                    if now - last_estimate >= ESTIMATE_EVERY:
+                        last_estimate = now
+                        write_estimate()
                     if now - last_prune >= 86400:
                         last_prune = now
                         prune()

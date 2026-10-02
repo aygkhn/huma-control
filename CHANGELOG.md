@@ -11,7 +11,8 @@ V4.1; same chassis as TUXEDO InfinityBook Pro 14 Gen6), EC project id `0x13`.
 
 ### Added
 
-- Battery page: time on battery since the last unplug, with the time spent asleep.
+- Battery page: time on battery since the last unplug, with the time spent asleep, and while
+  plugged in how long the current charge lasts with typical use.
 - Power Saving: "Deep sleep (S3)" switch; on the Huma H4 V4.1 suspend draws 0.44 W instead of
   1.33 W (s2idle).
 - Long descriptions open from an info button instead of filling the pages.
