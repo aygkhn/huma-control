@@ -11,6 +11,9 @@ V4.1; same chassis as TUXEDO InfinityBook Pro 14 Gen6), EC project id `0x13`.
 
 ### Added
 
+- Battery page: low battery protection. The battery percentage can drift and show 13% on an
+  empty battery; the service watches the battery voltage, warns 0.3 V above the limit and
+  suspends at the limit (adjustable, 10.30 V by default).
 - Battery page: time on battery since the last unplug, with the time spent asleep, and while
   plugged in how long the current charge lasts with typical use.
 - Power Saving: "Deep sleep (S3)" switch; on the Huma H4 V4.1 suspend draws 0.44 W instead of

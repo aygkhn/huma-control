@@ -58,6 +58,8 @@ function alertText(a) {
         'fan-stuck': [_('Fan is not spinning'), _('The fan is stopped although the CPU is at {temp} °C.')],
         'battery-health': [_('Battery health has dropped'),
             _('When full, the battery holds {full_wh} Wh (design {design_wh} Wh, {percent}). "Balanced" or "Stationary" in Battery Care protects the battery.')],
+        'battery-empty': [_('Battery is almost empty'),
+            _('Battery at {volts} V, the percentage may be wrong. Plug in the charger; the computer will sleep at {sleep_volts} V.')],
     };
     const known = texts[a.code];
     const data = a.data;

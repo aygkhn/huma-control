@@ -7,6 +7,7 @@
 #           huma-control-power card-reader-sleep <on|off>
 #           huma-control-power card-reader-off <on|off>
 #           huma-control-power deep-sleep <on|off>
+#           huma-control-power battery-guard <on|off> [sleep voltage, 10.00-11.00]
 set -euo pipefail
 
 PPD=/etc/tuned/ppd.conf
@@ -20,6 +21,8 @@ OFF_RULE=/etc/udev/rules.d/89-huma-control-cardreader-off.rules
 # suspend uses S3 ("deep") instead of s2idle: on the Huma H4 V4.1 s2idle draws ~1.33 W while
 # suspended, S3 ~0.44 W (one hour each, 2026-10-02); systemd-sleep writes it at each suspend
 DEEP_SLEEP=/etc/systemd/sleep.conf.d/90-huma-control-deep-sleep.conf
+# low battery voltage protection: huma-control-service suspends at this voltage (the gauge can drift)
+GUARD=/etc/huma-control/battery-guard.json
 
 # USB SD card readers handled here, as vendor:product. This is the only place that lists
 # them (the udev rules are generated from it). Only the Realtek reader of the Monster
@@ -28,7 +31,7 @@ DEEP_SLEEP=/etc/systemd/sleep.conf.d/90-huma-control-deep-sleep.conf
 CARD_READERS=(0bda:0316)
 
 usage() {
-    echo "Usage: huma-control-power <battery-profile|card-reader-sleep|card-reader-off|deep-sleep> <on|off>" >&2
+    echo "Usage: huma-control-power <battery-profile|card-reader-sleep|card-reader-off|deep-sleep|battery-guard> <on|off>" >&2
     exit 2
 }
 
@@ -81,6 +84,15 @@ off_rule() {
     done
 }
 
+if [ "${1:-}" = battery-guard ] && [ $# -ge 2 ] && [ $# -le 3 ]; then
+    case "$2" in on) enabled=true ;; off) enabled=false ;; *) usage ;; esac
+    volts=${3:-10.30}
+    [[ $volts =~ ^1[01]\.[0-9]{1,2}$ ]] && awk -v v="$volts" 'BEGIN{exit !(v >= 10 && v <= 11)}' \
+        || fail "The sleep voltage must be between 10.00 and 11.00 V"
+    mkdir -p "${GUARD%/*}"
+    printf '{"enabled": %s, "sleep_volts": %s}\n' "$enabled" "$volts" | write_rule "$GUARD"
+    exit 0
+fi
 [ $# -eq 2 ] || usage
 case "$2" in on|off) ;; *) usage ;; esac
 case "$1:$2" in

@@ -177,6 +177,8 @@ POWER_HELPER = '/usr/local/libexec/huma-control-power'
 CARD_READER_RULE = Path('/etc/udev/rules.d/90-huma-control-cardreader-pm.rules')
 CARD_READER_OFF = Path('/etc/udev/rules.d/89-huma-control-cardreader-off.rules')
 DEEP_SLEEP_CONF = Path('/etc/systemd/sleep.conf.d/90-huma-control-deep-sleep.conf')
+GUARD_CONF = Path('/etc/huma-control/battery-guard.json')
+GUARD_DEFAULT_VOLTS = 10.3
 CARD_MODES = [
     ('off', _('Off'), _("If you don't use cards: the reader never runs or polls for a card, and its USB link "
                            'sleeps too (most efficient). Choose "On" when you want to insert a card')),
@@ -389,6 +391,10 @@ ALERT_TEXTS = {
                        # Translators: {percent} is already formatted as a percentage (e.g. 78%)
                        _('When full, the battery holds {full_wh} Wh (design {design_wh} Wh, {percent}). "Balanced" or '
                          '"Stationary" in Battery Care protects the battery.')),
+    'battery-empty': (_('Battery is almost empty'),
+                      # Translators: {volts} and {sleep_volts} are battery voltages
+                      _('Battery at {volts} V, the percentage may be wrong. Plug in the charger; the computer will '
+                        'sleep at {sleep_volts} V.')),
 }
 
 
@@ -1570,7 +1576,43 @@ class Window(Adw.ApplicationWindow):
         care.add(self.priority_row)
         care.add(self.profile_row)
         prefs.add(care)
+
+        guard = self.guard_group = Adw.PreferencesGroup(title=_('Low Battery Protection'), description=_(
+            'The battery percentage can drift (for example after changing the charging profile) and show '
+            '13% on an empty battery; the battery then cuts the power without warning. This watches the '
+            'battery voltage instead: a warning 0.3 V above the limit, sleep at the limit.'))
+        self.guard_row = Adw.SwitchRow(title=_('Sleep when the battery voltage is low'),
+                                       subtitle=_('Works whatever the percentage says'))
+        self.guard_row.connect('notify::active', lambda *_: self._updating or self._save_guard())
+        self.guard_volts_row = Adw.SpinRow.new_with_range(10.0, 11.0, 0.05)
+        self.guard_volts_row.set_digits(2)
+        self.guard_volts_row.set_title(_('Sleep voltage (V)'))
+        self.guard_volts_row.set_subtitle(_('10.30 V is about 5%, the battery cuts the power at about 9.5 V. '
+                                            'Higher sleeps earlier and safer.'))
+        self.guard_volts_row.connect('notify::value', lambda *_: self._updating or self._save_guard_later())
+        self._guard_timer = 0
+        decorate((self.guard_row, 'battery-caution-symbolic', 'red'),
+                 (self.guard_volts_row, 'battery-low-symbolic', 'orange'))
+        guard.add(self.guard_row)
+        guard.add(self.guard_volts_row)
+        guard.set_visible(os.access(POWER_HELPER, os.X_OK) and BATTERY.exists())
+        prefs.add(guard)
         return prefs
+
+    def _save_guard_later(self):
+        if self._guard_timer:
+            GLib.source_remove(self._guard_timer)
+        self._guard_timer = GLib.timeout_add(800, self._save_guard)
+
+    def _save_guard(self):
+        self._guard_timer = 0
+        on = self.guard_row.get_active()
+        volts = f'{self.guard_volts_row.get_value():.2f}'
+        self.guard_volts_row.set_sensitive(on)
+        self._run_root_async([POWER_HELPER, 'battery-guard', 'on' if on else 'off', volts],
+                             _('The computer will sleep at {volts} V').format(volts=volts) if on else
+                             _('Low battery protection turned off'))
+        return GLib.SOURCE_REMOVE
 
     def _update_usage(self):
         data = read_json(USAGE_FILE)
@@ -2398,6 +2440,7 @@ class Window(Adw.ApplicationWindow):
                     'ppd': read('/etc/tuned/ppd.conf', ''),
                     'card_reader': CARD_READER_RULE.exists(),
                     'deep_sleep': DEEP_SLEEP_CONF.exists(),
+                    'guard': read_json(GUARD_CONF),
                     'card_off': CARD_READER_OFF.exists(),
                     'ac_recover': ac_recover(),
                     'battery': battery_info(),
@@ -2567,6 +2610,14 @@ class Window(Adw.ApplicationWindow):
         self.care_group.set_visible(self.priority_row.get_visible() or self.profile_row.get_visible())
         self.battery_profile_row.set_active('\nbalanced=huma-control-battery' in data.get('ppd', ''))
         self.deep_sleep_row.set_active(bool(data.get('deep_sleep')))
+        guard = data.get('guard') if isinstance(data.get('guard'), dict) else {}
+        self.guard_row.set_active(bool(guard.get('enabled', True)))
+        if not self._guard_timer:
+            try:
+                self.guard_volts_row.set_value(float(guard.get('sleep_volts', GUARD_DEFAULT_VOLTS)))
+            except (TypeError, ValueError):
+                self.guard_volts_row.set_value(GUARD_DEFAULT_VOLTS)
+        self.guard_volts_row.set_sensitive(self.guard_row.get_active())
         ac, usb = data.get('ac_recover'), data.get('usb_powershare')
         self.ac_row.set_visible(ac is not None)
         self.ac_row.set_active(bool(ac))

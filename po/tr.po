@@ -269,3 +269,33 @@ msgstr "ölçüm başarısız: {error}"
 
 msgid "check failed: {error}"
 msgstr "denetim başarısız: {error}"
+
+msgid "Battery is almost empty"
+msgstr "Pil neredeyse boş"
+
+msgid "Battery at {volts} V, the percentage may be wrong. Plug in the charger; the computer will sleep at {sleep_volts} V."
+msgstr "Pil {volts} V, yüzde yanlış olabilir. Şarj aletini takın; bilgisayar {sleep_volts} V'ta uyuyacak."
+
+msgid "Low Battery Protection"
+msgstr "Düşük Pil Koruması"
+
+msgid "The battery percentage can drift (for example after changing the charging profile) and show 13% on an empty battery; the battery then cuts the power without warning. This watches the battery voltage instead: a warning 0.3 V above the limit, sleep at the limit."
+msgstr "Pil yüzdesi kayabilir (örneğin şarj profili değiştirildikten sonra) ve boş pilde %13 gösterebilir; pil o zaman elektriği uyarısız keser. Bu koruma yüzde yerine pil voltajına bakar: sınırın 0,3 V üstünde uyarı verir, sınırda bilgisayarı uyutur."
+
+msgid "Sleep when the battery voltage is low"
+msgstr "Pil voltajı düşünce uyut"
+
+msgid "Works whatever the percentage says"
+msgstr "Yüzde ne derse desin çalışır"
+
+msgid "Sleep voltage (V)"
+msgstr "Uyku voltajı (V)"
+
+msgid "10.30 V is about 5%, the battery cuts the power at about 9.5 V. Higher sleeps earlier and safer."
+msgstr "10,30 V yaklaşık %5'tir, pil elektriği 9,5 V civarında keser. Daha yüksek değer daha erken ve daha güvenli uyutur."
+
+msgid "The computer will sleep at {volts} V"
+msgstr "Bilgisayar {volts} V'ta uyuyacak"
+
+msgid "Low battery protection turned off"
+msgstr "Düşük pil koruması kapatıldı"

@@ -71,7 +71,8 @@ if [ "${1:-}" = --uninstall ]; then
         "$LIBEXEC/huma-control-light" "$LIBEXEC/huma-control-presence" \
         "$LIBEXEC/huma-control-login-boost" /etc/systemd/system/huma-control-login-boost@.service \
         /etc/systemd/system/user@.service.d/huma-control-login-boost.conf \
-        /etc/modprobe.d/qc71_laptop-fan-curve.conf /run/huma-control-keyboard.daytime
+        /etc/modprobe.d/qc71_laptop-fan-curve.conf /run/huma-control-keyboard.daytime \
+        /etc/huma-control/battery-guard.json
     # UEFI backups (UniWillVariable.*) are kept on purpose
     sudo rm -rf /var/lib/huma-control/history.csv /var/lib/huma-control/history.tmp \
         /var/lib/huma-control/battery-usage.json /var/lib/huma-control/battery-usage.tmp \

@@ -66,7 +66,16 @@ FAN_EVERY_BATTERY = 300  # s: fan speed read interval on battery (every minute o
 FAN_WARM_C = 60     # from this temperature on, fan speed is read on every record
 FAULT_EVERY = 600   # s: fan fault read interval
 FAULT_HOT_C = 80    # from this temperature on, fan fault is read on every record
-FIELDS = 'time,ac,battery,watts,cpu_c,fan_rpm,profile,full_wh,design_wh'
+# Battery voltage guard (3S pack, rest voltage). The gauge's 5% is ~10.3 V; the pack cut power at ~9.5 V.
+# {"enabled": bool, "sleep_volts": V}, written by huma-control-power (Battery page)
+GUARD_CONFIG = Path('/etc/huma-control/battery-guard.json')
+GUARD_DEFAULT = {'enabled': True, 'sleep_volts': 10.3}
+GUARD_VOLTS = (10.0, 11.0)
+LOW_V_WARN_ABOVE = 0.3   # V: alert this much above the sleep voltage
+LOW_V_NEAR_ABOVE = 0.5   # V: from this much above the sleep voltage, check every round
+LOW_V_ROUNDS = 2    # consecutive readings (a short load spike does not count)
+PACK_OHM = 0.27     # measured pack internal resistance (Ω)
+FIELDS ='time,ac,battery,watts,cpu_c,fan_rpm,profile,full_wh,design_wh'
 
 DEFAULT = {
     'enabled': False,
@@ -415,6 +424,73 @@ def battery_watts():
         return sign * int(power) / 1e6 if power else None
     except ValueError:
         return None
+
+
+def battery_volts():
+    """Battery rest voltage estimate (V): measured voltage plus the internal-resistance drop under load."""
+    try:
+        volt = int(read(BAT / 'voltage_now', '0') or 0) / 1e6
+        cur = int(read(BAT / 'current_now', '0') or 0) / 1e6
+    except ValueError:
+        return None
+    return volt + cur * PACK_OHM if volt else None
+
+
+class VoltageGuard:
+    """The charge gauge can drift (e.g. after charge-limit changes) and still show 13% on an empty
+    battery; the pack then cuts power without warning. On battery, warn and then suspend by voltage."""
+
+    def __init__(self):
+        self.low = 0             # consecutive readings under the sleep voltage
+        self.volts = None
+        self.resume_at = 0       # after a suspend: give time to plug in before suspending again
+        self.config, self.mtime = dict(GUARD_DEFAULT), object()
+
+    def load(self):
+        try:
+            mtime = GUARD_CONFIG.stat().st_mtime
+        except OSError:
+            mtime = None
+        if mtime == self.mtime:
+            return
+        self.mtime, config = mtime, dict(GUARD_DEFAULT)
+        if mtime is not None:
+            try:
+                data = json.loads(GUARD_CONFIG.read_text())
+                config['enabled'] = bool(data.get('enabled', True))
+                volts = float(data.get('sleep_volts', config['sleep_volts']))
+                if GUARD_VOLTS[0] <= volts <= GUARD_VOLTS[1]:
+                    config['sleep_volts'] = volts
+            except CONFIG_ERRORS as e:
+                log(f'battery guard settings could not be read ({e}); defaults are used')
+        self.config = config
+        log(f"battery guard: {'sleep at %.2f V' % config['sleep_volts'] if config['enabled'] else 'off'}")
+
+    def due(self, history_due):
+        # every minute normally; every round near empty
+        near = self.config['sleep_volts'] + LOW_V_NEAR_ABOVE
+        return history_due or (self.volts is not None and self.volts < near)
+
+    def tick(self, mains, alerts):
+        self.load()
+        if not self.config['enabled'] or mains or read(BAT / 'status') != 'Discharging':
+            self.low, self.volts = 0, None
+            return
+        self.volts = volts = battery_volts()
+        if volts is None:
+            return
+        sleep_volts = self.config['sleep_volts']
+        if volts < sleep_volts + LOW_V_WARN_ABOVE:
+            alerts.raise_('battery_empty', 'battery-empty', 'Battery is almost empty',
+                          'Battery at {volts} V, the percentage may be wrong. Plug in the charger; '
+                          'the computer will sleep at {sleep_volts} V.',
+                          {'volts': round(volts, 2), 'sleep_volts': round(sleep_volts, 2)}, 600)
+        self.low = self.low + 1 if volts < sleep_volts else 0
+        if self.low >= LOW_V_ROUNDS and time.monotonic() >= self.resume_at:
+            log(f'battery at {volts:.2f} V ({read(BAT / "capacity", "?")}%): suspending')
+            self.low = 0
+            subprocess.run(['systemctl', 'suspend'], check=False)
+            self.resume_at = time.monotonic() + 120
 
 
 def battery_wh():
@@ -917,6 +993,7 @@ def main():
         log(f'could not open uevent socket ({e}); AC and profile will be read every round')
     mains = on_mains()
     auto, alerts, usage, unplugged = Auto(mains, profile), Alerts(), Usage(), Unplugged()
+    guard = VoltageGuard()
     # settings are read in the loop (when mtime changes); defaults at first
     config, config_mtime = json.loads(json.dumps(DEFAULT)), object()
     never = float('-inf')
@@ -945,6 +1022,8 @@ def main():
                 else:
                     # when off do not touch the EC; do not re-apply needlessly once turned on
                     auto.mains, auto.reapply_at = mains, 0
+                if guard.due(history_due):
+                    guard.tick(mains, alerts)
                 temp = cpu_temp()
                 hot = temp is not None and temp >= HOT_C
                 if history_due:
