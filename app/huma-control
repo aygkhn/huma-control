@@ -147,6 +147,31 @@ def on_battery_text():
 
 
 ESTIMATE = Path('/var/lib/huma-control/battery-estimate.json')   # typical power on battery (service)
+ENERGY = Path('/var/lib/huma-control/battery-energy.json')   # the service's own energy counter
+
+
+def energy_left():
+    """The service's energy counter (the gauge percentage drifts); None if missing or stale."""
+    d = read_json(ENERGY)
+    if not isinstance(d, dict) or not isinstance(d.get('remaining_wh'), (int, float)) \
+            or not d.get('full_wh') or time.time() - d.get('updated', 0) > 600:
+        return None
+    return d
+
+
+def energy_text():
+    """'62% · 25.8 of 41.5 Wh · ~3 h 40 min left (7.0 W)'; None without the service's counter."""
+    d = energy_left()
+    if d is None:
+        return None
+    text = pct(d['percent']) + ' · ' + _('{left} of {full} Wh').format(left=dec(d['remaining_wh']),
+                                                                         full=dec(d['full_wh']))
+    if read(BATTERY / 'status', '') == 'Discharging' and (d.get('avg_w') or 0) > 0.5:
+        text += ' · ' + _('~{time} left ({watts} W)').format(time=hm_label(d['remaining_wh'] / d['avg_w'] * 3600),
+                                                         watts=dec(d['avg_w']))
+    if d.get('source') == 'voltage':
+        text += ' · ' + _('by voltage')
+    return text
 
 
 def charge_lasts_text():
@@ -155,9 +180,11 @@ def charge_lasts_text():
     if read(BATTERY / 'status', '') == 'Discharging':
         return None
     est = read_json(ESTIMATE)
+    energy = energy_left()
     try:
         watts = float(est['typical_w'])
-        wh = int(read(BATTERY / 'charge_now')) * int(read(BATTERY / 'voltage_min_design')) / 1e12
+        wh = energy['remaining_wh'] if energy else \
+            int(read(BATTERY / 'charge_now')) * int(read(BATTERY / 'voltage_min_design')) / 1e12
     except (TypeError, KeyError, ValueError):
         return None
     if watts <= 0 or wh <= 0:
@@ -1529,9 +1556,10 @@ class Window(Adw.ApplicationWindow):
         prefs = Adw.PreferencesPage()
         health = Adw.PreferencesGroup(title=_('Battery Status'))
         self.bat_rows = {key: Adw.ActionRow(title=title, css_classes=['property']) for key, title in (
-            ('charge', _('Charge')), ('onbat', _('On battery')), ('lasts', _('This charge lasts')), ('capacity', _('Full charge capacity')), ('design', _('Design capacity')),
+            ('charge', _('Charge')), ('energy', _('Energy left')), ('onbat', _('On battery')), ('lasts', _('This charge lasts')), ('capacity', _('Full charge capacity')), ('design', _('Design capacity')),
             ('health', _('Battery health')), ('cycles', _('Charge cycles')), ('tech', _('Type')))}
-        icons = {'charge': ('battery-good-symbolic', 'green'), 'onbat': ('preferences-system-time-symbolic', 'orange'),
+        icons = {'charge': ('battery-good-symbolic', 'green'), 'energy': ('battery-level-70-symbolic', 'blue'),
+                 'onbat': ('preferences-system-time-symbolic', 'orange'),
                  'lasts': ('battery-good-symbolic', 'teal'),
                  'capacity': ('battery-full-charging-symbolic', 'green'),
                  'design': ('battery-level-100-charged-symbolic', 'teal'), 'health': ('emblem-system-symbolic', 'pink'),
@@ -2647,6 +2675,9 @@ class Window(Adw.ApplicationWindow):
             status = {'Charging': _('charging'), 'Discharging': _('discharging'), 'Full': _('full'),
                       'Not charging': _('not charging')}.get(info['status'], info['status'])
             r['charge'].set_subtitle(pct(f'{bat["percent"]:.0f}') + f' · {status}' if bat else status)
+            energy = energy_text()
+            r['energy'].set_visible(energy is not None)
+            r['energy'].set_subtitle(energy or '')
             unplugged = on_battery_text()
             r['onbat'].set_visible(unplugged is not None)
             r['onbat'].set_subtitle(unplugged or '')

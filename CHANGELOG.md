@@ -11,6 +11,11 @@ V4.1; same chassis as TUXEDO InfinityBook Pro 14 Gen6), EC project id `0x13`.
 
 ### Added
 
+- Battery page and battery extension: energy left from the service's own counter. Counted from
+  the last full charge (battery V×I, across a suspend the gauge's charge counter), corrected by
+  the voltage near empty, usable energy per charging profile learned from full-to-empty runs.
+  The gauge percentage jumps from ~94% to 100% when charging stops with "Balanced" and is
+  optimistic near empty; the counter is not.
 - Battery page: low battery protection. The battery percentage can drift and show 13% on an
   empty battery; the service watches the battery voltage, warns 0.3 V above the limit and
   suspends at the limit (adjustable, 10.30 V by default). If the computer sleeps with a low

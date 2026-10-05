@@ -305,3 +305,15 @@ msgstr "Uykudan sonra kapat (saat)"
 
 msgid "When sleeping with a low battery and not plugged in. 0: never (the battery may run empty while asleep)"
 msgstr "Düşük pille uyuyup şarja takılmadığında. 0: hiçbir zaman (pil uykudayken bitebilir)"
+
+msgid "Energy left"
+msgstr "Kalan enerji"
+
+msgid "{left} of {full} Wh"
+msgstr "{left} / {full} Wh"
+
+msgid "~{time} left ({watts} W)"
+msgstr "~{time} kaldı ({watts} W)"
+
+msgid "by voltage"
+msgstr "voltaja göre"
