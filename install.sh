@@ -72,7 +72,7 @@ if [ "${1:-}" = --uninstall ]; then
         "$LIBEXEC/huma-control-login-boost" /etc/systemd/system/huma-control-login-boost@.service \
         /etc/systemd/system/user@.service.d/huma-control-login-boost.conf \
         /etc/modprobe.d/qc71_laptop-fan-curve.conf /run/huma-control-keyboard.daytime \
-        /etc/huma-control/battery-guard.json
+        /etc/huma-control/battery-guard.json /usr/lib/systemd/system-sleep/huma-control
     # UEFI backups (UniWillVariable.*) are kept on purpose
     sudo rm -rf /var/lib/huma-control/history.csv /var/lib/huma-control/history.tmp \
         /var/lib/huma-control/battery-usage.json /var/lib/huma-control/battery-usage.tmp \
@@ -212,6 +212,8 @@ sudo install -D -m 755 "$DIR/system/huma-control-service" "$LIBEXEC/huma-control
 sudo install -m 644 "$DIR/system/huma-control-service.service" /etc/systemd/system/
 # faster login on battery (turbo for 20 s while GNOME starts)
 sudo install -D -m 755 "$DIR/system/huma-control-login-boost" "$LIBEXEC/huma-control-login-boost"
+# low battery while asleep: shut down cleanly before the battery runs empty
+sudo install -D -m 755 "$DIR/system/huma-control-sleep" /usr/lib/systemd/system-sleep/huma-control
 sudo install -m 644 "$DIR/system/huma-control-login-boost@.service" /etc/systemd/system/
 sudo install -D -m 644 "$DIR/system/user@.service.d/huma-control-login-boost.conf" \
     /etc/systemd/system/user@.service.d/huma-control-login-boost.conf

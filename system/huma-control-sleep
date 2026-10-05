@@ -1,0 +1,93 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: GPL-2.0-or-later
+# SPDX-FileCopyrightText: 2026 Gokhan AY <aygkhn@gmail.com>
+# Huma Control Center: shut down cleanly if the computer sleeps with a low battery for too long.
+# Suspend still draws ~0.5 W; with a few percent left the battery runs empty during a long sleep
+# and the pack cuts the power (open apps are lost, it won't power on until plugged in). Before a
+# suspend on a low battery an RTC alarm is set; if it wakes the computer still on battery, it is
+# shut down. Runs from systemd-sleep (/usr/lib/systemd/system-sleep): $1 = pre|post, $2 = suspend...
+# Settings: /etc/huma-control/battery-guard.json (Battery page -> Low Battery Protection).
+import json
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+BAT = Path('/sys/class/power_supply/BAT0')
+RTC = Path('/sys/class/rtc/rtc0/wakealarm')
+CONFIG = Path('/etc/huma-control/battery-guard.json')
+MARK = Path('/run/huma-control/low-sleep')   # epoch s of the RTC alarm
+DEFAULT = {'enabled': True, 'sleep_volts': 10.3, 'poweroff_hours': 2}
+LOW_PERCENT = 10        # % (the gauge can drift: the voltage below counts too)
+LOW_V_ABOVE = 0.3       # V above the sleep voltage (same as the service's warning)
+PACK_OHM = 0.27         # measured pack internal resistance (Ω)
+
+
+def read(path, default=''):
+    try:
+        return Path(path).read_text().strip()
+    except OSError:
+        return default
+
+
+def config():
+    out = dict(DEFAULT)
+    try:
+        data = json.loads(CONFIG.read_text())
+        out['enabled'] = bool(data.get('enabled', True))
+        out['sleep_volts'] = float(data.get('sleep_volts', out['sleep_volts']))
+        out['poweroff_hours'] = float(data.get('poweroff_hours', out['poweroff_hours']))
+    except (OSError, ValueError, TypeError, AttributeError):
+        pass
+    return out
+
+
+def low(cfg):
+    if read(BAT / 'status') != 'Discharging':
+        return False
+    try:
+        percent = int(read(BAT / 'capacity', '100'))
+        volts = int(read(BAT / 'voltage_now', '0')) / 1e6 + int(read(BAT / 'current_now', '0')) / 1e6 * PACK_OHM
+    except ValueError:
+        return False
+    return percent <= LOW_PERCENT or (volts and volts < cfg['sleep_volts'] + LOW_V_ABOVE)
+
+
+def set_alarm(seconds):
+    # relative ("+N"): the RTC may keep local time (dual boot with Windows), an absolute epoch
+    # value would then be off by the UTC offset
+    try:
+        RTC.write_text('0')
+        if seconds:
+            RTC.write_text(f'+{int(seconds)}')
+    except OSError as e:
+        print(f'RTC alarm could not be set: {e}', file=sys.stderr)
+
+
+def main():
+    if len(sys.argv) < 3 or sys.argv[2] not in ('suspend', 'hybrid-sleep', 'suspend-then-hibernate'):
+        return
+    cfg = config()
+    if sys.argv[1] == 'pre':
+        MARK.unlink(missing_ok=True)
+        if cfg['enabled'] and cfg['poweroff_hours'] > 0 and low(cfg):
+            seconds = cfg['poweroff_hours'] * 3600
+            at = time.time() + seconds
+            set_alarm(seconds)
+            MARK.parent.mkdir(parents=True, exist_ok=True)
+            MARK.write_text(str(int(at)))
+            print(f"low battery: shutting down in {cfg['poweroff_hours']:g} h unless plugged in")
+    elif sys.argv[1] == 'post' and MARK.exists():
+        try:
+            at = int(read(MARK, '0'))
+        except ValueError:
+            at = 0
+        MARK.unlink(missing_ok=True)
+        set_alarm(0)
+        if read(BAT / 'status') == 'Discharging' and time.time() >= at - 60:
+            print('woken by the low battery alarm, still on battery: shutting down')
+            subprocess.run(['systemctl', 'poweroff', '--no-block'], check=False)
+
+
+if __name__ == '__main__':
+    main()

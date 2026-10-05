@@ -65,7 +65,8 @@ PH4TUX1 rebrands) are **not enabled**; if you own one, please run
 - Power-saving automations only on battery, with measured, low-wakeup services
 - Power-saving profile on battery ("Balanced" runs like Power Saver, turbo off) and an
   SD card reader that sleeps when idle or is switched off completely
-- Low battery protection: sleeps by battery voltage (adjustable) even when the percentage is wrong
+- Low battery protection: sleeps by battery voltage (adjustable) even when the percentage is wrong;
+  asleep on a low battery, it shuts down cleanly after 2 hours instead of running empty
 - Deep sleep (S3) while suspended: 0.44 W instead of 1.33 W with s2idle on this laptop
 
 **Ambient light without a light sensor**

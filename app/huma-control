@@ -179,6 +179,7 @@ CARD_READER_OFF = Path('/etc/udev/rules.d/89-huma-control-cardreader-off.rules')
 DEEP_SLEEP_CONF = Path('/etc/systemd/sleep.conf.d/90-huma-control-deep-sleep.conf')
 GUARD_CONF = Path('/etc/huma-control/battery-guard.json')
 GUARD_DEFAULT_VOLTS = 10.3
+GUARD_DEFAULT_HOURS = 2
 CARD_MODES = [
     ('off', _('Off'), _("If you don't use cards: the reader never runs or polls for a card, and its USB link "
                            'sleeps too (most efficient). Choose "On" when you want to insert a card')),
@@ -1580,7 +1581,9 @@ class Window(Adw.ApplicationWindow):
         guard = self.guard_group = Adw.PreferencesGroup(title=_('Low Battery Protection'), description=_(
             'The battery percentage can drift (for example after changing the charging profile) and show '
             '13% on an empty battery; the battery then cuts the power without warning. This watches the '
-            'battery voltage instead: a warning 0.3 V above the limit, sleep at the limit.'))
+            'battery voltage instead: a warning 0.3 V above the limit, sleep at the limit. Sleep still uses '
+            'power: if the computer sleeps with a low battery and is not plugged in, it shuts down cleanly '
+            'before the battery runs empty.'))
         self.guard_row = Adw.SwitchRow(title=_('Sleep when the battery voltage is low'),
                                        subtitle=_('Works whatever the percentage says'))
         self.guard_row.connect('notify::active', lambda *_: self._updating or self._save_guard())
@@ -1590,11 +1593,18 @@ class Window(Adw.ApplicationWindow):
         self.guard_volts_row.set_subtitle(_('10.30 V is about 5%, the battery cuts the power at about 9.5 V. '
                                             'Higher sleeps earlier and safer.'))
         self.guard_volts_row.connect('notify::value', lambda *_: self._updating or self._save_guard_later())
+        self.guard_hours_row = Adw.SpinRow.new_with_range(0, 12, 1)
+        self.guard_hours_row.set_title(_('Shut down after sleeping (hours)'))
+        self.guard_hours_row.set_subtitle(_('When sleeping with a low battery and not plugged in. 0: never '
+                                            '(the battery may run empty while asleep)'))
+        self.guard_hours_row.connect('notify::value', lambda *_: self._updating or self._save_guard_later())
         self._guard_timer = 0
         decorate((self.guard_row, 'battery-caution-symbolic', 'red'),
-                 (self.guard_volts_row, 'battery-low-symbolic', 'orange'))
+                 (self.guard_volts_row, 'battery-low-symbolic', 'orange'),
+                 (self.guard_hours_row, 'system-shutdown-symbolic', 'slate'))
         guard.add(self.guard_row)
         guard.add(self.guard_volts_row)
+        guard.add(self.guard_hours_row)
         guard.set_visible(os.access(POWER_HELPER, os.X_OK) and BATTERY.exists())
         prefs.add(guard)
         return prefs
@@ -1608,8 +1618,10 @@ class Window(Adw.ApplicationWindow):
         self._guard_timer = 0
         on = self.guard_row.get_active()
         volts = f'{self.guard_volts_row.get_value():.2f}'
+        hours = str(int(self.guard_hours_row.get_value()))
         self.guard_volts_row.set_sensitive(on)
-        self._run_root_async([POWER_HELPER, 'battery-guard', 'on' if on else 'off', volts],
+        self.guard_hours_row.set_sensitive(on)
+        self._run_root_async([POWER_HELPER, 'battery-guard', 'on' if on else 'off', volts, hours],
                              _('The computer will sleep at {volts} V').format(volts=volts) if on else
                              _('Low battery protection turned off'))
         return GLib.SOURCE_REMOVE
@@ -2617,7 +2629,12 @@ class Window(Adw.ApplicationWindow):
                 self.guard_volts_row.set_value(float(guard.get('sleep_volts', GUARD_DEFAULT_VOLTS)))
             except (TypeError, ValueError):
                 self.guard_volts_row.set_value(GUARD_DEFAULT_VOLTS)
+            try:
+                self.guard_hours_row.set_value(float(guard.get('poweroff_hours', GUARD_DEFAULT_HOURS)))
+            except (TypeError, ValueError):
+                self.guard_hours_row.set_value(GUARD_DEFAULT_HOURS)
         self.guard_volts_row.set_sensitive(self.guard_row.get_active())
+        self.guard_hours_row.set_sensitive(self.guard_row.get_active())
         ac, usb = data.get('ac_recover'), data.get('usb_powershare')
         self.ac_row.set_visible(ac is not None)
         self.ac_row.set_active(bool(ac))

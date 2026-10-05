@@ -7,7 +7,7 @@
 #           huma-control-power card-reader-sleep <on|off>
 #           huma-control-power card-reader-off <on|off>
 #           huma-control-power deep-sleep <on|off>
-#           huma-control-power battery-guard <on|off> [sleep voltage, 10.00-11.00]
+#           huma-control-power battery-guard <on|off> [sleep voltage, 10.00-11.00] [shut down after hours asleep, 0-12]
 set -euo pipefail
 
 PPD=/etc/tuned/ppd.conf
@@ -84,13 +84,15 @@ off_rule() {
     done
 }
 
-if [ "${1:-}" = battery-guard ] && [ $# -ge 2 ] && [ $# -le 3 ]; then
+if [ "${1:-}" = battery-guard ] && [ $# -ge 2 ] && [ $# -le 4 ]; then
     case "$2" in on) enabled=true ;; off) enabled=false ;; *) usage ;; esac
     volts=${3:-10.30}
     [[ $volts =~ ^1[01]\.[0-9]{1,2}$ ]] && awk -v v="$volts" 'BEGIN{exit !(v >= 10 && v <= 11)}' \
         || fail "The sleep voltage must be between 10.00 and 11.00 V"
+    hours=${4:-2}
+    [[ $hours =~ ^([0-9]|1[0-2])$ ]] || fail "The shutdown time must be 0-12 hours"
     mkdir -p "${GUARD%/*}"
-    printf '{"enabled": %s, "sleep_volts": %s}\n' "$enabled" "$volts" | write_rule "$GUARD"
+    printf '{"enabled": %s, "sleep_volts": %s, "poweroff_hours": %s}\n' "$enabled" "$volts" "$hours" | write_rule "$GUARD"
     exit 0
 fi
 [ $# -eq 2 ] || usage

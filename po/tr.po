@@ -279,8 +279,8 @@ msgstr "Pil {volts} V, yüzde yanlış olabilir. Şarj aletini takın; bilgisaya
 msgid "Low Battery Protection"
 msgstr "Düşük Pil Koruması"
 
-msgid "The battery percentage can drift (for example after changing the charging profile) and show 13% on an empty battery; the battery then cuts the power without warning. This watches the battery voltage instead: a warning 0.3 V above the limit, sleep at the limit."
-msgstr "Pil yüzdesi kayabilir (örneğin şarj profili değiştirildikten sonra) ve boş pilde %13 gösterebilir; pil o zaman elektriği uyarısız keser. Bu koruma yüzde yerine pil voltajına bakar: sınırın 0,3 V üstünde uyarı verir, sınırda bilgisayarı uyutur."
+msgid "The battery percentage can drift (for example after changing the charging profile) and show 13% on an empty battery; the battery then cuts the power without warning. This watches the battery voltage instead: a warning 0.3 V above the limit, sleep at the limit. Sleep still uses power: if the computer sleeps with a low battery and is not plugged in, it shuts down cleanly before the battery runs empty."
+msgstr "Pil yüzdesi kayabilir (örneğin şarj profili değiştirildikten sonra) ve boş pilde %13 gösterebilir; pil o zaman elektriği uyarısız keser. Bu koruma yüzde yerine pil voltajına bakar: sınırın 0,3 V üstünde uyarı verir, sınırda bilgisayarı uyutur. Uyku da güç harcar: bilgisayar düşük pille uyur ve şarja takılmazsa, pil bitmeden düzgünce kapanır."
 
 msgid "Sleep when the battery voltage is low"
 msgstr "Pil voltajı düşünce uyut"
@@ -299,3 +299,9 @@ msgstr "Bilgisayar {volts} V'ta uyuyacak"
 
 msgid "Low battery protection turned off"
 msgstr "Düşük pil koruması kapatıldı"
+
+msgid "Shut down after sleeping (hours)"
+msgstr "Uykudan sonra kapat (saat)"
+
+msgid "When sleeping with a low battery and not plugged in. 0: never (the battery may run empty while asleep)"
+msgstr "Düşük pille uyuyup şarja takılmadığında. 0: hiçbir zaman (pil uykudayken bitebilir)"
