@@ -677,9 +677,10 @@ ENERGY = Path('/var/lib/huma-control/battery-energy.json')
 # been run to the sleep voltage from full.
 FULL_WH = {'high_capacity': 46.5, 'balanced': 41.5, 'stationary': 38.0}
 CHARGE_EFFICIENCY = 0.94   # share of the battery's input power that is stored (internal resistance)
-# rest voltage (V, load-corrected) -> energy left (Wh), measured 2026-10-05 near empty
-VOLT_WH = [(10.5, 0.5), (10.6, 0.6), (10.7, 0.8), (10.8, 1.1), (10.9, 1.7), (11.0, 2.3), (11.1, 4.1),
-           (11.2, 7.7), (11.4, 15.2)]
+# rest voltage (V, load-corrected) -> energy left (Wh), measured 2026-10-05 near empty. Only the
+# last ~10%: higher up the curve is flat and a load step moves the voltage more than the charge does
+VOLT_WH = [(10.5, 0.5), (10.6, 0.6), (10.7, 0.8), (10.8, 1.1), (10.9, 1.7), (11.0, 2.3), (11.1, 4.1)]
+VOLT_SMOOTH = 0.3   # voltage average weight per reading (≈3 min): a short load spike does not count
 GAP = 150   # s: a longer gap between readings is a suspend (or the service was stopped)
 
 
@@ -701,6 +702,7 @@ class EnergyMeter:
             self.data = {}
         self.data.setdefault('learned', {})
         self.last = None    # (CLOCK_BOOTTIME, watts, charge_now µAh)
+        self.volts = None   # smoothed load-corrected voltage while discharging
 
     def full_wh(self, profile):
         learned = self.data['learned'].get(profile)
@@ -749,7 +751,9 @@ class EnergyMeter:
             if watts is not None and watts < 0:
                 d['avg_w'] = round(-watts if d.get('avg_w') is None else d['avg_w'] * 0.8 - watts * 0.2, 2)
             volts = battery_volts()
-            by_volts = volt_wh(volts)
+            if volts is not None:
+                self.volts = volts if self.volts is None else self.volts + (volts - self.volts) * VOLT_SMOOTH
+            by_volts = volt_wh(self.volts)
             if by_volts is not None and by_volts < remaining:
                 remaining, d['source'] = by_volts, 'voltage'
             # ran from full down to the sleep voltage: learn the usable energy of this profile
@@ -763,7 +767,7 @@ class EnergyMeter:
                     d['learned'][d['profile']] = new
                     log(f"battery energy: {d['profile']} held {used:.1f} Wh, learned {new} Wh")
         else:
-            d['avg_w'] = None
+            d['avg_w'] = self.volts = None
         d['remaining_wh'] = round(remaining, 2)
         d['counter_wh'] = round(d['counter_wh'], 3)
         d['percent'] = round(100 * remaining / d['full_wh']) if d.get('full_wh') else None
