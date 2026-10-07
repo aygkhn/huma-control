@@ -2254,3 +2254,6 @@ msgstr "Fan, klavye ışığı ve güç ayarları"
 #: io.github.aygkhn.HumaControl.desktop:11
 msgid "fan;keyboard;backlight;power;battery;monster;huma;"
 msgstr "fan;klavye;ışık;güç;pil;monster;huma;"
+
+msgid "Voltage and current"
+msgstr "Voltaj ve akım"

@@ -630,6 +630,15 @@ def battery_info():
             'tech': read(BATTERY / 'technology', ''), 'status': read(BATTERY / 'status', '')}
 
 
+def electric_text():
+    """'11,42 V · 0,90 A · 10,3 W' from the battery's own voltage and current."""
+    volts = int(read(BATTERY / 'voltage_now', '0') or 0) / 1e6
+    amps = abs(int(read(BATTERY / 'current_now', '0') or 0)) / 1e6
+    if not volts:
+        return None
+    return f'{dec(volts, 2)} V · {dec(amps, 2)} A · {dec(volts * amps)} W'
+
+
 def device_info():
     dmi = lambda name: read(f'/sys/class/dmi/id/{name}', '') or '—'
     cpu = next((l.split(':', 1)[1].strip() for l in (read('/proc/cpuinfo', '') or '').splitlines()
@@ -1556,9 +1565,10 @@ class Window(Adw.ApplicationWindow):
         prefs = Adw.PreferencesPage()
         health = Adw.PreferencesGroup(title=_('Battery Status'))
         self.bat_rows = {key: Adw.ActionRow(title=title, css_classes=['property']) for key, title in (
-            ('charge', _('Charge')), ('energy', _('Energy left')), ('onbat', _('On battery')), ('lasts', _('This charge lasts')), ('capacity', _('Full charge capacity')), ('design', _('Design capacity')),
+            ('charge', _('Charge')), ('electric', _('Voltage and current')), ('energy', _('Energy left')), ('onbat', _('On battery')), ('lasts', _('This charge lasts')), ('capacity', _('Full charge capacity')), ('design', _('Design capacity')),
             ('health', _('Battery health')), ('cycles', _('Charge cycles')), ('tech', _('Type')))}
-        icons = {'charge': ('battery-good-symbolic', 'green'), 'energy': ('battery-level-70-symbolic', 'blue'),
+        icons = {'charge': ('battery-good-symbolic', 'green'), 'electric': ('battery-caution-charging-symbolic', 'yellow'),
+                 'energy': ('battery-level-70-symbolic', 'blue'),
                  'onbat': ('preferences-system-time-symbolic', 'orange'),
                  'lasts': ('battery-good-symbolic', 'teal'),
                  'capacity': ('battery-full-charging-symbolic', 'green'),
@@ -2675,6 +2685,9 @@ class Window(Adw.ApplicationWindow):
             status = {'Charging': _('charging'), 'Discharging': _('discharging'), 'Full': _('full'),
                       'Not charging': _('not charging')}.get(info['status'], info['status'])
             r['charge'].set_subtitle(pct(f'{bat["percent"]:.0f}') + f' · {status}' if bat else status)
+            electric = electric_text()
+            r['electric'].set_visible(electric is not None)
+            r['electric'].set_subtitle(electric or '')
             energy = energy_text()
             r['energy'].set_visible(energy is not None)
             r['energy'].set_subtitle(energy or '')

@@ -754,9 +754,8 @@ class EnergyMeter:
             if volts is not None:
                 self.volts = volts if self.volts is None else self.volts + (volts - self.volts) * VOLT_SMOOTH
             by_volts = volt_wh(self.volts)
-            if by_volts is not None and by_volts < remaining:
-                remaining, d['source'] = by_volts, 'voltage'
             # ran from full down to the sleep voltage: learn the usable energy of this profile
+            # (from the counter alone, before the voltage below corrects it)
             if (volts is not None and volts < sleep_volts and d.get('state') == 'counting'
                     and d.get('learned_at') != d.get('full_at')):
                 used = d['full_wh'] - d['counter_wh'] + VOLT_WH[0][1]
@@ -766,6 +765,11 @@ class EnergyMeter:
                     new = round(old * 0.5 + used * 0.5, 1)
                     d['learned'][d['profile']] = new
                     log(f"battery energy: {d['profile']} held {used:.1f} Wh, learned {new} Wh")
+            # near empty the voltage is reliable: the counter follows it, so a charge started
+            # after the battery ran empty (or cut the power) starts from what is really there
+            if by_volts is not None and by_volts < remaining:
+                remaining, d['source'] = by_volts, 'voltage'
+                d['counter_wh'] = by_volts
         else:
             d['avg_w'] = self.volts = None
         d['remaining_wh'] = round(remaining, 2)
