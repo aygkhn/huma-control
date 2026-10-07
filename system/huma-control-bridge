@@ -1,0 +1,184 @@
+#!/usr/bin/python3 -I
+# SPDX-License-Identifier: GPL-2.0-or-later
+# SPDX-FileCopyrightText: 2026 Gokhan AY <aygkhn@gmail.com>
+# Huma Control Center bridge for virtual machines: a small HTTP API that only listens on the
+# libvirt network (virbr0, 192.168.122.1) so a guest (the macOS VM) can show the laptop's battery,
+# fan and temperatures and change a few settings. Every request needs the token in
+# /etc/huma-control/bridge-token (Authorization: Bearer <token>).
+#   GET  /status                       JSON state
+#   POST /set   {"setting": ..., "value": ...}
+# Settings go through the same root helpers as the app, nothing new writes to the controller.
+import json, os, secrets, socket, subprocess, sys, time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+
+ADDRESS = os.environ.get('HUMA_BRIDGE_ADDRESS', '192.168.122.1')
+PORT = int(os.environ.get('HUMA_BRIDGE_PORT', '8765'))
+TOKEN_FILE = Path('/etc/huma-control/bridge-token')
+BATTERY = Path('/sys/class/power_supply/BAT0')
+QC71 = Path('/sys/devices/platform/qc71_laptop')
+KBD = QC71 / 'leds/white:kbd_backlight'
+ENERGY = Path('/var/lib/huma-control/battery-energy.json')
+HELPER = '/usr/local/libexec/huma-control-helper'
+
+# setting -> (allowed values, command)
+SETTINGS = {
+    'fan': ({'auto', 'max'}, lambda v: [HELPER, 'fan', v]),
+    'charging-profile': ({'high_capacity', 'balanced', 'stationary'}, lambda v: [HELPER, 'charging-profile', v]),
+    'charging-priority': ({'charge_battery', 'performance'}, lambda v: [HELPER, 'charging-priority', v]),
+    'fn-lock': ({'on', 'off'}, lambda v: [HELPER, 'fn-lock', v]),
+    'super-key-lock': ({'on', 'off'}, lambda v: [HELPER, 'super-key-lock', v]),
+    'power-profile': ({'power-saver', 'balanced', 'performance'}, lambda v: [
+        'busctl', 'set-property', 'net.hadess.PowerProfiles', '/net/hadess/PowerProfiles',
+        'net.hadess.PowerProfiles', 'ActiveProfile', 's', v]),
+    'keyboard': ({'0', '1', '2'}, None),
+}
+
+
+def read(path, default=None):
+    try:
+        return Path(path).read_text().strip()
+    except OSError:
+        return default
+
+
+def number(path, scale=1, default=None):
+    value = read(path)
+    try:
+        return int(value) / scale
+    except (TypeError, ValueError):
+        return default
+
+
+def hwmon(name):
+    for h in Path('/sys/class/hwmon').iterdir():
+        if read(h / 'name') == name:
+            return h
+    return None
+
+
+def power_profile():
+    out = subprocess.run(['busctl', 'get-property', 'net.hadess.PowerProfiles', '/net/hadess/PowerProfiles',
+                          'net.hadess.PowerProfiles', 'ActiveProfile'], capture_output=True, text=True)
+    return out.stdout.split('"')[1] if out.returncode == 0 and '"' in out.stdout else None
+
+
+def status():
+    volts = number(BATTERY / 'voltage_now', 1e6)
+    amps = number(BATTERY / 'current_now', 1e6)
+    try:
+        energy = json.loads(ENERGY.read_text())
+        if time.time() - energy.get('updated', 0) > 600:
+            energy = None
+    except (OSError, ValueError):
+        energy = None
+    fan = hwmon('qc71_laptop.hwmon.fan')
+    cpu = hwmon('coretemp')
+    return {
+        'battery': {
+            'percent': number(BATTERY / 'capacity'),
+            'status': read(BATTERY / 'status'),
+            'volts': volts,
+            'amps': abs(amps) if amps is not None else None,
+            'watts': round(volts * abs(amps), 2) if volts and amps is not None else None,
+            'real_percent': energy and energy.get('percent'),
+            'remaining_wh': energy and energy.get('remaining_wh'),
+            'full_wh': energy and energy.get('full_wh'),
+        },
+        'fan': {
+            'rpm': number(fan / 'fan1_input') if fan else None,
+            'boost': read(QC71 / 'fan_boost') == '1',
+        },
+        'temps': {
+            'cpu': number(cpu / 'temp1_input', 1000) if cpu else None,
+            'fan_sensor': number(fan / 'temp1_input', 1000) if fan else None,
+        },
+        'settings': {
+            'power-profile': power_profile(),
+            'charging-profile': read(QC71 / 'charging_profile'),
+            'charging-priority': read(QC71 / 'charging_priority'),
+            'fn-lock': 'on' if read(QC71 / 'fn_lock') == '1' else 'off',
+            'super-key-lock': 'on' if read(QC71 / 'super_key_lock') == '1' else 'off',
+            'keyboard': read(KBD / 'brightness'),
+            'fan': 'max' if read(QC71 / 'fan_boost') == '1' else 'auto',
+        },
+        'ac': read('/sys/class/power_supply/AC0/online') == '1',
+    }
+
+
+def apply(setting, value):
+    allowed, command = SETTINGS[setting]
+    if value not in allowed:
+        raise ValueError(f'{setting}: {value!r} is not one of {sorted(allowed)}')
+    if setting == 'keyboard':
+        (KBD / 'brightness').write_text(value)
+        return
+    out = subprocess.run(command(value), capture_output=True, text=True, timeout=20)
+    if out.returncode:
+        raise RuntimeError(out.stderr.strip() or f'exit {out.returncode}')
+
+
+class Handler(BaseHTTPRequestHandler):
+    server_version = 'huma-control-bridge'
+
+    def reply(self, code, data):
+        body = json.dumps(data).encode()
+        self.send_response(code)
+        self.send_header('Content-Type', 'application/json')
+        self.send_header('Content-Length', str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def authorized(self):
+        given = self.headers.get('Authorization', '').removeprefix('Bearer ').strip()
+        if secrets.compare_digest(given, TOKEN):
+            return True
+        self.reply(401, {'error': 'unauthorized'})
+        return False
+
+    def do_GET(self):
+        if not self.authorized():
+            return
+        if self.path == '/status':
+            self.reply(200, status())
+        else:
+            self.reply(404, {'error': 'not found'})
+
+    def do_POST(self):
+        if not self.authorized():
+            return
+        if self.path != '/set':
+            return self.reply(404, {'error': 'not found'})
+        try:
+            length = min(int(self.headers.get('Content-Length', 0)), 4096)
+            data = json.loads(self.rfile.read(length))
+            setting, value = data['setting'], str(data['value'])
+            if setting not in SETTINGS:
+                raise ValueError(f'unknown setting {setting!r}')
+            apply(setting, value)
+        except (KeyError, ValueError, TypeError) as e:
+            return self.reply(400, {'error': str(e)})
+        except Exception as e:
+            return self.reply(500, {'error': str(e)})
+        self.reply(200, status())
+
+    def log_message(self, fmt, *args):
+        if self.command == 'POST':
+            sys.stderr.write(f'{self.address_string()} {fmt % args}\n')
+
+
+class Server(ThreadingHTTPServer):
+    def server_bind(self):
+        # virbr0 may come up after this service: bind to the address before it exists
+        self.socket.setsockopt(socket.IPPROTO_IP, getattr(socket, 'IP_FREEBIND', 15), 1)
+        super().server_bind()
+
+
+if __name__ == '__main__':
+    if not TOKEN_FILE.exists():
+        TOKEN_FILE.parent.mkdir(parents=True, exist_ok=True)
+        fd = os.open(TOKEN_FILE, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        os.write(fd, (secrets.token_urlsafe(32) + '\n').encode())
+        os.close(fd)
+    TOKEN = TOKEN_FILE.read_text().strip()
+    Server((ADDRESS, PORT), Handler).serve_forever()

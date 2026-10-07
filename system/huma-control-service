@@ -676,11 +676,14 @@ ENERGY = Path('/var/lib/huma-control/battery-energy.json')
 # (2026-10-03/05); "stationary" is estimated. Replaced by the learned value once the battery has
 # been run to the sleep voltage from full.
 FULL_WH = {'high_capacity': 46.5, 'balanced': 41.5, 'stationary': 38.0}
-CHARGE_EFFICIENCY = 0.94   # share of the battery's input power that is stored (internal resistance)
+# share of the battery's measured input that comes back out. Measured 2026-10-05/06: empty -> full took
+# ~40.8 Wh by the battery's own V×I, full -> empty gave 40.7 Wh: its charge current reads low by about
+# the internal-resistance loss, so the two cancel out
+CHARGE_EFFICIENCY = 1.0
 # rest voltage (V, load-corrected) -> energy left (Wh), measured 2026-10-05 near empty. Only the
 # last ~10%: higher up the curve is flat and a load step moves the voltage more than the charge does
 VOLT_WH = [(10.5, 0.5), (10.6, 0.6), (10.7, 0.8), (10.8, 1.1), (10.9, 1.7), (11.0, 2.3), (11.1, 4.1)]
-VOLT_SMOOTH = 0.3   # voltage average weight per reading (≈3 min): a short load spike does not count
+VOLT_SMOOTH = 0.08  # voltage average weight per reading (≈15 s apart: ≈3 min): a load spike does not count
 GAP = 150   # s: a longer gap between readings is a suspend (or the service was stopped)
 
 
@@ -703,12 +706,13 @@ class EnergyMeter:
         self.data.setdefault('learned', {})
         self.last = None    # (CLOCK_BOOTTIME, watts, charge_now µAh)
         self.volts = None   # smoothed load-corrected voltage while discharging
+        self.status = None
 
     def full_wh(self, profile):
         learned = self.data['learned'].get(profile)
         return learned or FULL_WH.get(profile, FULL_WH['balanced'])
 
-    def tick(self, status, watts, sleep_volts):
+    def tick(self, status, watts, sleep_volts, write=True):
         now = time.clock_gettime(time.CLOCK_BOOTTIME)
         profile = read(QC71 / 'charging_profile') or 'balanced'
         charge = read(BAT / 'charge_now')
@@ -749,14 +753,14 @@ class EnergyMeter:
         if status == 'Discharging':
             # recent power (≈5 min average) for the time left
             if watts is not None and watts < 0:
-                d['avg_w'] = round(-watts if d.get('avg_w') is None else d['avg_w'] * 0.8 - watts * 0.2, 2)
+                d['avg_w'] = round(-watts if d.get('avg_w') is None else d['avg_w'] * 0.95 - watts * 0.05, 2)
             volts = battery_volts()
             if volts is not None:
                 self.volts = volts if self.volts is None else self.volts + (volts - self.volts) * VOLT_SMOOTH
             by_volts = volt_wh(self.volts)
             # ran from full down to the sleep voltage: learn the usable energy of this profile
             # (from the counter alone, before the voltage below corrects it)
-            if (volts is not None and volts < sleep_volts and d.get('state') == 'counting'
+            if (self.volts is not None and self.volts < sleep_volts and d.get('state') == 'counting'
                     and d.get('learned_at') != d.get('full_at')):
                 used = d['full_wh'] - d['counter_wh'] + VOLT_WH[0][1]
                 old = self.full_wh(d['profile'])
@@ -776,7 +780,9 @@ class EnergyMeter:
         d['counter_wh'] = round(d['counter_wh'], 3)
         d['percent'] = round(100 * remaining / d['full_wh']) if d.get('full_wh') else None
         d['updated'] = round(time.time())
-        self.write()
+        if write or status != self.status:
+            self.write()
+        self.status = status
 
     def write(self):
         try:
@@ -1145,6 +1151,11 @@ def main():
                 else:
                     # when off do not touch the EC; do not re-apply needlessly once turned on
                     auto.mains, auto.reapply_at = mains, 0
+                # energy counter: every round (≈15 s) while the battery is in use, so load changes
+                # between the minute records are not missed
+                status = read(BAT / 'status')
+                if history_due or status in ('Charging', 'Discharging'):
+                    meter.tick(status, battery_watts(), guard.config['sleep_volts'], write=history_due)
                 if guard.due(history_due):
                     guard.tick(mains, alerts)
                 temp = cpu_temp()
@@ -1163,7 +1174,6 @@ def main():
                     full, design = battery_wh()
                     watts = battery_watts()
                     usage.tick(mains, watts)
-                    meter.tick(read(BAT / 'status'), watts, guard.config['sleep_volts'])
                     record([datetime.now().strftime('%Y-%m-%dT%H:%M:%S'), '1' if mains else '0',
                             read(BAT / 'capacity', ''), fmt(watts, '.2f'), fmt(temp), fmt(rpm, 'd'),
                             profile.get() or '', fmt(full, '.2f'), fmt(design, '.2f')])

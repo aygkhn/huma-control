@@ -1,0 +1,13 @@
+[Unit]
+Description=Huma Control Center bridge for virtual machines (libvirt network only)
+After=network.target
+
+[Service]
+ExecStart=/usr/local/libexec/huma-control-bridge
+Restart=on-failure
+RestartSec=5
+ProtectHome=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

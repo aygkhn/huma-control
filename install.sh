@@ -11,6 +11,7 @@
 #        ./install.sh --uninstall      remove the driver, helpers, services and app
 #        --no-power-saving             do not install the power-saving component
 #                                      (huma-control-power, tuned profile)
+#        --vm-bridge                   HTTP bridge for virtual machines (libvirt network only)
 #        --force                       developers only: skip the model check (the
 #                                      driver still refuses to write; docs/SAFETY.md)
 set -euo pipefail
@@ -55,7 +56,10 @@ gsettings_list_add() {  # schema key entry
 
 if [ "${1:-}" = --uninstall ]; then
     echo "==> Removing Huma Control Center (sudo password will be requested)"
-    sudo systemctl disable --now huma-control-keyboard.service huma-control-service.service 2>/dev/null || true
+    sudo systemctl disable --now huma-control-keyboard.service huma-control-service.service \
+        huma-control-bridge.service 2>/dev/null || true
+    sudo rm -f /etc/systemd/system/huma-control-bridge.service "$LIBEXEC/huma-control-bridge" \
+        /etc/huma-control/bridge-token
     # power saving: back to the defaults (tuned-ppd mapping, card reader on and authorized)
     if [ -x "$POWER" ]; then
         for f in battery-profile card-reader-off card-reader-sleep deep-sleep; do
@@ -222,6 +226,16 @@ sudo udevadm control --reload
 sudo systemctl enable huma-control-keyboard.service huma-control-service.service
 sudo systemctl restart huma-control-keyboard.service huma-control-service.service
 sudo install -m 644 "$DIR/system/50-huma-control.rules" /etc/polkit-1/rules.d/
+if has_flag "$*" --vm-bridge; then
+    echo "==> Bridge for virtual machines (libvirt network only, token in /etc/huma-control/bridge-token)"
+    sudo install -D -m 755 "$DIR/system/huma-control-bridge" "$LIBEXEC/huma-control-bridge"
+    sudo install -m 644 "$DIR/system/huma-control-bridge.service" /etc/systemd/system/
+    sudo systemctl daemon-reload
+    sudo systemctl enable --now huma-control-bridge.service
+    if command -v firewall-cmd >/dev/null; then
+        sudo firewall-cmd -q --zone=libvirt --add-port=8765/tcp --permanent && sudo firewall-cmd -q --reload
+    fi
+fi
 
 if has_flag "$*" --no-power-saving; then
     echo "==> Power-saving component skipped (--no-power-saving)"
